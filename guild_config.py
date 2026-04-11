@@ -14,12 +14,12 @@ async def get_setting_int(guild_id: int, key: str) -> int | None:
 
 async def get_text_channel(
     guild: discord.Guild, key: str
-) -> discord.TextChannel | discord.NewsChannel | None:
+) -> discord.TextChannel | None:
     cid = await get_setting_int(guild.id, key)
     if not cid:
         return None
     ch = guild.get_channel(cid)
-    if isinstance(ch, (discord.TextChannel, discord.NewsChannel)):
+    if isinstance(ch, discord.TextChannel):
         return ch
     return None
 

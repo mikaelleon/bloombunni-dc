@@ -56,7 +56,7 @@ class ServerConfigCog(commands.Cog, name="ServerConfigCog"):
         slot: str,
         channel: discord.abc.GuildChannel,
     ) -> None:
-        if not isinstance(channel, (discord.TextChannel, discord.NewsChannel)):
+        if not isinstance(channel, discord.TextChannel):
             await interaction.response.send_message(
                 embed=info_embed(
                     "Invalid channel",

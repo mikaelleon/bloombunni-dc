@@ -94,7 +94,7 @@ class VouchCog(commands.Cog, name="VouchCog"):
             description=f"**{member.display_name}**\n{message}\nOrder: `{order_id}`",
             color=PRIMARY,
         )
-        if isinstance(ch, (discord.TextChannel, discord.NewsChannel)):
+        if isinstance(ch, discord.TextChannel):
             await ch.send(embed=emb)
         await interaction.followup.send(
             embed=success_embed("Logged", "Vouch posted."), ephemeral=True
