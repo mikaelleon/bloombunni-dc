@@ -11,7 +11,9 @@ from discord.ext import commands
 import config
 import database as db
 from cogs.payment import PaymentView
-from cogs.tickets import CloseTicketView, TOSAgreeView, TicketOpenView
+from cogs.queue import register_order_status_views
+from cogs.shop import TOSAgreeView
+from cogs.tickets import CloseTicketView, TicketOpenView
 from keep_alive import keep_alive
 
 logging.basicConfig(level=logging.INFO)
@@ -20,7 +22,6 @@ log = logging.getLogger("bot")
 INTENTS = discord.Intents.default()
 INTENTS.message_content = True
 INTENTS.members = True
-INTENTS.voice_states = True
 
 
 class MikaBot(commands.Bot):
@@ -37,12 +38,8 @@ class MikaBot(commands.Bot):
             "cogs.shop",
             "cogs.vouch",
             "cogs.warn",
-            "cogs.sticky",
-            "cogs.roblox",
             "cogs.drop",
-            "cogs.calculator",
             "cogs.payment",
-            "cogs.voice",
         ]
         for e in exts:
             try:
@@ -60,6 +57,8 @@ class MikaBot(commands.Bot):
         self.add_view(TOSAgreeView())
         self.add_view(PaymentView())
 
+        await register_order_status_views(self)
+
 
 bot = MikaBot()
 
@@ -67,17 +66,9 @@ bot = MikaBot()
 @bot.event
 async def on_ready() -> None:
     log.info("Logged in as %s (%s)", bot.user, round(bot.latency * 1000))
-    q = bot.get_cog("QueueCog")
-    if q and hasattr(q, "load_queue_message"):
-        await q.load_queue_message()
-    if q and hasattr(q, "refresh_queue_board"):
-        await q.refresh_queue_board()
     shop = bot.get_cog("ShopCog")
     if shop and hasattr(shop, "refresh_status_message"):
         await shop.refresh_status_message()
-    vc = bot.get_cog("VoiceCog")
-    if vc and hasattr(vc, "join_vc"):
-        await vc.join_vc()
 
 
 @bot.tree.error

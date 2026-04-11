@@ -26,8 +26,6 @@ def _req_int(name: str) -> int:
 BOT_TOKEN: str = _req("BOT_TOKEN")
 GUILD_ID: int = _req_int("GUILD_ID")
 STAFF_ROLE_ID: int = _req_int("STAFF_ROLE_ID")
-BOOSTIE_ROLE_ID: int = _req_int("BOOSTIE_ROLE_ID")
-RESELLER_ROLE_ID: int = _req_int("RESELLER_ROLE_ID")
 TOS_AGREED_ROLE_ID: int = _req_int("TOS_AGREED_ROLE_ID")
 COMMISSIONS_OPEN_ROLE_ID: int = _req_int("COMMISSIONS_OPEN_ROLE_ID")
 PLEASE_VOUCH_ROLE_ID: int = _req_int("PLEASE_VOUCH_ROLE_ID")
@@ -44,9 +42,6 @@ START_HERE_CHANNEL_ID: int = _req_int("START_HERE_CHANNEL_ID")
 TOS_CHANNEL_ID: int = _req_int("TOS_CHANNEL_ID")
 PAYMENT_CHANNEL_ID: int = _req_int("PAYMENT_CHANNEL_ID")
 WARN_LOG_CHANNEL_ID: int = _req_int("WARN_LOG_CHANNEL_ID")
-VC_CHANNEL_ID: int = _req_int("VC_CHANNEL_ID")
-ROBLOX_COOKIE: str = _req("ROBLOX_COOKIE")
-ROBLOX_GROUP_ID: int = _req_int("ROBLOX_GROUP_ID")
 GCASH_DETAILS: str = _req("GCASH_DETAILS")
 PAYPAL_LINK: str = _req("PAYPAL_LINK")
 KOFI_LINK: str = _req("KOFI_LINK")
@@ -55,7 +50,7 @@ PAYPAL_QR_URL: str = _req("PAYPAL_QR_URL")
 
 DATABASE_PATH: Path = _BOT_DIR / "bot.db"
 TOS_FILE: Path = _BOT_DIR / "tos.txt"
-STOCKS_FILE: Path = _BOT_DIR / "stocks.json"
+TEMPLATES_FILE: Path = _BOT_DIR / "templates.json"
 
 
 def validate_config() -> None:
@@ -63,8 +58,6 @@ def validate_config() -> None:
     _ = BOT_TOKEN
     _ = GUILD_ID
     _ = STAFF_ROLE_ID
-    _ = BOOSTIE_ROLE_ID
-    _ = RESELLER_ROLE_ID
     _ = TOS_AGREED_ROLE_ID
     _ = COMMISSIONS_OPEN_ROLE_ID
     _ = PLEASE_VOUCH_ROLE_ID
@@ -81,9 +74,6 @@ def validate_config() -> None:
     _ = TOS_CHANNEL_ID
     _ = PAYMENT_CHANNEL_ID
     _ = WARN_LOG_CHANNEL_ID
-    _ = VC_CHANNEL_ID
-    _ = ROBLOX_COOKIE
-    _ = ROBLOX_GROUP_ID
     _ = GCASH_DETAILS
     _ = PAYPAL_LINK
     _ = KOFI_LINK

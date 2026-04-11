@@ -55,28 +55,23 @@ class VouchCog(commands.Cog, name="VouchCog"):
             await message.author.remove_roles(role, reason="Vouched")
         except discord.Forbidden:
             return
-        await db.insert_vouch(message.author.id, None, 0, message.content[:2000])
+        await db.insert_vouch(message.author.id, None, message.content[:2000])
         await message.reply(
             f"✅ Thanks for vouching, {message.author.mention}! Your PlsVouch role has been removed."
         )
 
     @app_commands.command(name="vouch", description="Manually log a vouch (staff)")
-    @app_commands.describe(
-        member="Client",
-        order_id="Related order ID",
-        rating="1-5 stars",
-        message="Vouch text",
-    )
+    @app_commands.describe(member="Client", order_id="Related order ID", message="Vouch text")
     @is_staff()
     async def vouch_cmd(
         self,
         interaction: discord.Interaction,
         member: discord.Member,
         order_id: str,
-        rating: app_commands.Range[int, 1, 5],
         message: str,
     ) -> None:
-        await db.insert_vouch(member.id, order_id, int(rating), message)
+        await interaction.response.defer(ephemeral=True)
+        await db.insert_vouch(member.id, order_id, message)
         role = interaction.guild.get_role(config.PLEASE_VOUCH_ROLE_ID)
         if role and role in member.roles:
             try:
@@ -89,11 +84,10 @@ class VouchCog(commands.Cog, name="VouchCog"):
                 await member.remove_roles(role)
             except discord.Forbidden:
                 pass
-        await interaction.response.defer(ephemeral=True)
         ch = interaction.guild.get_channel(config.VOUCHES_CHANNEL_ID)
         emb = discord.Embed(
             title="⭐ Vouch",
-            description=f"**{member.display_name}** — {rating}/5\n{message}\nOrder: `{order_id}`",
+            description=f"**{member.display_name}**\n{message}\nOrder: `{order_id}`",
             color=PRIMARY,
         )
         if isinstance(ch, discord.TextChannel):
@@ -118,7 +112,7 @@ class VouchCog(commands.Cog, name="VouchCog"):
             lines = []
             for r in part:
                 lines.append(
-                    f"**#{r['vouch_id']}** — {r['rating']}/5 — {r['created_at']}\n{r['message'][:500]}"
+                    f"**#{r['vouch_id']}** — {r['created_at']}\n{r['message'][:500]}"
                 )
             pages.append(
                 discord.Embed(

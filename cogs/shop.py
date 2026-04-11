@@ -1,4 +1,4 @@
-"""Shop open/closed status and channel permissions."""
+"""TOS gate, shop open/close, status embed."""
 
 from __future__ import annotations
 
@@ -9,7 +9,44 @@ from discord.ext import commands
 import config
 import database as db
 from utils.checks import is_staff
-from utils.embeds import DANGER, SUCCESS, info_embed, success_embed
+from utils.embeds import DANGER, SUCCESS, error_embed, info_embed, success_embed
+
+
+class TOSAgreeView(discord.ui.View):
+    def __init__(self) -> None:
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="I Have Read & Agree to the TOS",
+        style=discord.ButtonStyle.success,
+        custom_id="tos_agree",
+    )
+    async def agree(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message(
+                embed=error_embed("Error", "Use this in the server."), ephemeral=True
+            )
+            return
+        role = interaction.guild.get_role(config.TOS_AGREED_ROLE_ID)
+        if role is None:
+            await interaction.response.send_message(
+                embed=error_embed("Error", "TOS role not configured."), ephemeral=True
+            )
+            return
+        if role in interaction.user.roles:
+            await interaction.response.send_message("You've already agreed.", ephemeral=True)
+            return
+        try:
+            await interaction.user.add_roles(role, reason="TOS agreement")
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                embed=error_embed("Error", "I cannot assign the role."), ephemeral=True
+            )
+            return
+        await db.log_tos_agreement(interaction.user.id)
+        await interaction.response.send_message(
+            "✅ You've agreed! You can now open a commission ticket.", ephemeral=True
+        )
 
 
 class ShopCog(commands.Cog, name="ShopCog"):
@@ -30,6 +67,26 @@ class ShopCog(commands.Cog, name="ShopCog"):
             self._status_message = await ch.fetch_message(int(row["message_id"]))
         except (discord.NotFound, discord.Forbidden):
             self._status_message = None
+
+    async def run_setup_tos(self, interaction: discord.Interaction) -> None:
+        """Called from `/setup tos`."""
+        ch = interaction.guild.get_channel(config.TOS_CHANNEL_ID)
+        if not isinstance(ch, discord.TextChannel):
+            await interaction.response.send_message(
+                embed=error_embed("Config", "TOS channel invalid."), ephemeral=True
+            )
+            return
+        text = (
+            config.TOS_FILE.read_text(encoding="utf-8")
+            if config.TOS_FILE.exists()
+            else "TOS text missing."
+        )
+        emb = discord.Embed(title="Terms of Service", description=text[:4000], color=DANGER)
+        await interaction.response.send_message(
+            embed=success_embed("Posted", "TOS panel deployed."), ephemeral=True
+        )
+        msg = await ch.send(embed=emb, view=TOSAgreeView())
+        await db.set_persist_panel("tos", ch.id, msg.id)
 
     def _embed(self, st: dict) -> discord.Embed:
         open_ = bool(st.get("is_open", 0))
@@ -82,11 +139,14 @@ class ShopCog(commands.Cog, name="ShopCog"):
         await self._apply_status_embed(interaction, emb)
 
         start = interaction.guild.get_channel(config.START_HERE_CHANNEL_ID)
+        tos_role = interaction.guild.get_role(config.TOS_AGREED_ROLE_ID)
+        open_role = interaction.guild.get_role(config.COMMISSIONS_OPEN_ROLE_ID)
         if isinstance(start, discord.TextChannel):
-            await start.set_permissions(
-                interaction.guild.default_role,
-                view_channel=True,
-            )
+            await start.set_permissions(interaction.guild.default_role, view_channel=False)
+            if tos_role:
+                await start.set_permissions(tos_role, view_channel=True)
+            if open_role:
+                await start.set_permissions(open_role, view_channel=True)
 
         await interaction.followup.send(
             embed=success_embed("Shop", "Commissions are now **open**."), ephemeral=True
@@ -104,11 +164,13 @@ class ShopCog(commands.Cog, name="ShopCog"):
         await self._apply_status_embed(interaction, emb)
 
         start = interaction.guild.get_channel(config.START_HERE_CHANNEL_ID)
+        tos_role = interaction.guild.get_role(config.TOS_AGREED_ROLE_ID)
+        open_role = interaction.guild.get_role(config.COMMISSIONS_OPEN_ROLE_ID)
         if isinstance(start, discord.TextChannel):
-            await start.set_permissions(
-                interaction.guild.default_role,
-                view_channel=False,
-            )
+            if tos_role:
+                await start.set_permissions(tos_role, view_channel=False)
+            if open_role:
+                await start.set_permissions(open_role, view_channel=False)
 
         await interaction.followup.send(
             embed=success_embed("Shop", "Commissions are now **closed**."), ephemeral=True

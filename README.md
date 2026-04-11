@@ -1,6 +1,6 @@
 # Mika Shop — Discord Bot
 
-Python Discord bot for a Roblox digital commission shop: tickets, orders, queue, shop open/close, vouches, moderation, Roblox helpers, payments panel, and 24/7 voice presence. Built with **discord.py 2.x** (slash commands, UI components), **SQLite** (`aiosqlite`), **aiohttp**, and a small **Flask** keep-alive for hosting.
+Python Discord bot for a digital art commission shop: tickets, **`/queue`** order registration, template-based queue cards, shop open/close, TOS gate, vouches, moderation, payments panel, and HTML transcripts. Built with **discord.py 2.x**, **SQLite** (`aiosqlite`), and a small **Flask** keep-alive for hosting.
 
 ## Requirements
 
@@ -9,7 +9,7 @@ Python Discord bot for a Roblox digital commission shop: tickets, orders, queue,
 
 ## Quick start
 
-1. Clone or copy this `bot` folder and open a terminal inside it.
+1. Open a terminal inside this `bot` folder.
 
 2. Create a virtual environment (recommended):
 
@@ -26,79 +26,56 @@ Python Discord bot for a Roblox digital commission shop: tickets, orders, queue,
 
 4. Configure environment variables:
 
-   - Copy [`.env.example`](.env.example) to `.env`.
-   - Fill in all values (bot token, guild ID, role/channel IDs, payment details, Roblox cookie for staff tools, etc.).
+   - Copy [`.env.example`](.env.example) to `.env` and fill in all IDs and secrets.
    - Never commit `.env` or push secrets to Git.
 
-5. Run the bot:
+5. **If upgrading from an older schema**, delete `bot.db` so the new tables can be created (or migrate manually).
+
+6. Run the bot:
 
    ```bash
    python main.py
    ```
 
-On first run, the bot creates `bot.db` in this directory and initializes tables.
-
 ## Discord application settings
 
-In the [Discord Developer Portal](https://discord.com/developers/applications), enable:
+In the [Discord Developer Portal](https://discord.com/developers/applications), enable **Message Content Intent** and **Server Members Intent**. Grant the bot permissions for managing channels/categories, roles, embeds, files, and history where needed.
 
-- **Privileged Gateway Intents**: *Message Content Intent*, *Server Members Intent* (required for sticky/vouch logic and member-based features).
-- **Bot permissions** appropriate for your server (manage channels/roles where the features need them, voice connect, send messages, embeds, attach files, etc.).
-
-Slash commands are **guild-synced** to the guild ID in `.env` for fast updates during development.
+Slash commands are **guild-synced** to `GUILD_ID` from `.env`.
 
 ## Environment variables
 
-All configuration is loaded from `.env` via [`config.py`](config.py). See [`.env.example`](.env.example) for the full list:
-
-| Area | Examples |
-|------|----------|
-| Core | `BOT_TOKEN`, `GUILD_ID` |
-| Roles | `STAFF_ROLE_ID`, `TOS_AGREED_ROLE_ID`, `PLEASE_VOUCH_ROLE_ID`, … |
-| Channels / categories | `TICKET_CATEGORY_ID`, `QUEUE_CHANNEL_ID`, `VOUCHES_CHANNEL_ID`, … |
-| Roblox | `ROBLOX_COOKIE`, `ROBLOX_GROUP_ID` |
-| Payments | `GCASH_DETAILS`, `PAYPAL_LINK`, `KOFI_LINK`, `GCASH_QR_URL`, `PAYPAL_QR_URL` |
-
-Startup fails fast with a clear error if a required variable is missing.
+See [`.env.example`](.env.example) and [`config.py`](config.py). Startup fails with a clear error if a required variable is missing.
 
 ## Project layout
 
 ```
 bot/
-├── main.py              # Entry: DB init, cog load, guild sync, persistent views, keep-alive
-├── keep_alive.py        # Flask GET / on port 8080 (background thread)
-├── config.py            # Env loading and validation
-├── database.py          # SQLite schema and async queries
+├── main.py
+├── keep_alive.py
+├── config.py
+├── database.py
 ├── requirements.txt
-├── tos.txt              # TOS embed text (editable without code changes)
-├── stocks.json          # Manual stock data for /stocks commands
-├── cogs/                # Feature modules (one cog per area)
-├── utils/               # embeds, checks, transcript helper
-└── docs/                # Extra documentation (see docs/README.md)
+├── tos.txt
+├── templates.json       # Default message templates (overridable via DB)
+├── cogs/
+└── utils/
 ```
 
-## Notable slash commands (overview)
+## Notable slash commands
 
-| Area | Examples |
+| Area | Commands |
 |------|----------|
-| Staff setup | `/setup tickets`, `/setup tos`, `/setup queue`, `/setup payment` |
+| Setup | `/setup tickets`, `/setup tos`, `/setup payment` |
 | Shop | `/shop open`, `/shop close`, `/shopstatus` |
-| Tickets | Open via panel button; `/close` in ticket channel |
-| Queue | `/status`, `/queuepanel`, `/loyalty`, `/loyaltytop` |
-| Other | `/warn`, `/vouches`, `/sticky`, `/calc`, `/tax`, `/stocks`, `/drop`, `/vcjoin`, … |
-
-Exact behaviour lives in each cog under `cogs/`.
+| Queue | `/queue` (staff), `/settemplate`, `/viewtemplate`, `/listtemplates`, `/resettemplates`, `/loyalty`, `/loyaltytop` |
+| Tickets | Panel button, `/close` |
+| Other | `/drop`, `/drophistory`, `/vouch`, `/vouches`, `/warn`, … |
 
 ## Hosting (e.g. Render)
 
-- Run as a **Background Worker** with start command: `python main.py`.
-- Set all environment variables in the host dashboard (do not rely on a committed `.env`).
-- The Flask keep-alive listens on **port 8080**; you can point an external monitor (e.g. UptimeRobot) at the provided URL if your platform exposes one.
+Use a **Background Worker** with `python main.py`. Set env vars in the dashboard. Flask keep-alive uses **port 8080**.
 
-## Documentation folder
+## Documentation
 
-Additional notes and runbooks can live under [`docs/`](docs/README.md).
-
-## License
-
-Use and modify according to your project’s license (add a `LICENSE` file if you need one).
+See [`docs/README.md`](docs/README.md).

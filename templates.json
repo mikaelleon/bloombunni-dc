@@ -1,0 +1,18 @@
+{
+  "noted_channel": "🧺 your order is noted .!",
+  "noted_buyer_line": "buyer : {buyer}",
+  "noted_instructions": "♡ please wait for your order to be processed\n♡ kindly check your order status here {queue_link}\n♡ no rude buyers | spam pings | rushing",
+  "noted_queue_header": ". ≋≋≋≋≋≋{ 🎀 }≋≋≋≋≋≋ .",
+  "noted_queue_channel": "# {channel_name}",
+  "noted_queue_buyer": "buyer — {buyer}",
+  "noted_queue_item": "{amount} {item}",
+  "noted_queue_price": "{price} via {mop}",
+  "noted_queue_status": "order status — order noted .!",
+  "noted_queue_handler": "assisted by : {handler}",
+  "processing_label": "-- ⊙ order processing ...",
+  "processing_description": "your order is now processing...",
+  "processing_message": "your order is now being processed! please wait warmly ♡",
+  "completed_label": "-- ⊙ order completed .!",
+  "completed_description": "tysm for buying | vouch us ./",
+  "completed_message": "your order is complete! tysm for buying ♡ please vouch us in {vouches_channel}"
+}

@@ -15,7 +15,30 @@ from utils.embeds import PRIMARY, error_embed, info_embed, success_embed
 class DropLinkView(discord.ui.View):
     def __init__(self, url: str) -> None:
         super().__init__(timeout=None)
-        self.add_item(discord.ui.Button(label="Open link", style=discord.ButtonStyle.link, url=url))
+        self.add_item(
+            discord.ui.Button(label="Open link", style=discord.ButtonStyle.link, url=url)
+        )
+
+
+def delivery_ready_embed() -> discord.Embed:
+    return discord.Embed(
+        title="📦 Your Order is Ready!",
+        description=(
+            "Your commission is complete. Please respect watermark & TOS.\n"
+            f"When you can, leave a vouch in <#{config.VOUCHES_CHANNEL_ID}>."
+        ),
+        color=PRIMARY,
+    )
+
+
+async def send_completion_delivery_dm(
+    bot: commands.Bot, member: discord.Member, order_id: str
+) -> None:
+    """Optional delivery-style DM when an order is marked completed (no file link)."""
+    try:
+        await member.send(embed=delivery_ready_embed())
+    except discord.Forbidden:
+        pass
 
 
 class DropCog(commands.Cog, name="DropCog"):
@@ -33,15 +56,7 @@ class DropCog(commands.Cog, name="DropCog"):
         order_id: str | None = None,
     ) -> None:
         await interaction.response.defer(ephemeral=True)
-        emb = discord.Embed(
-            title="📦 Your Order is Ready!",
-            description=(
-                "Here is your download / item link.\n"
-                "Please respect watermark & TOS.\n"
-                f"When you can, leave a vouch in <#{config.VOUCHES_CHANNEL_ID}>."
-            ),
-            color=PRIMARY,
-        )
+        emb = delivery_ready_embed()
         view = DropLinkView(link)
         try:
             await member.send(embed=emb, view=view)
@@ -58,10 +73,10 @@ class DropCog(commands.Cog, name="DropCog"):
         await interaction.followup.send(
             embed=success_embed("Sent", f"Drop logged for {member.mention}."), ephemeral=True
         )
-        if order_id:
-            t = await db.get_ticket_by_order(order_id)
-            if t:
-                ch = interaction.guild.get_channel(int(t["channel_id"]))
+        if order_id and interaction.guild:
+            o = await db.get_order(order_id)
+            if o:
+                ch = interaction.guild.get_channel(int(o["ticket_channel_id"]))
                 if isinstance(ch, discord.TextChannel):
                     await ch.send(
                         embed=info_embed("Drop sent", f"Delivery DM sent to {member.mention}.")

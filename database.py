@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from typing import Any
 
@@ -21,19 +20,16 @@ async def init_db() -> None:
             """
             CREATE TABLE IF NOT EXISTS orders (
                 order_id TEXT PRIMARY KEY,
+                handler_id INTEGER,
                 client_id INTEGER,
                 client_name TEXT,
-                commission_type TEXT,
-                tier TEXT,
-                characters INTEGER,
-                background TEXT,
-                notes TEXT,
-                status TEXT DEFAULT 'Queued',
-                boostie INTEGER DEFAULT 0,
-                reseller INTEGER DEFAULT 0,
-                base_price REAL,
-                final_price REAL,
-                payment_method TEXT,
+                item TEXT,
+                amount TEXT,
+                mop TEXT,
+                price TEXT,
+                ticket_channel_id INTEGER,
+                status TEXT DEFAULT 'Noted',
+                queue_message_id INTEGER,
                 created_at TEXT,
                 updated_at TEXT
             )
@@ -45,8 +41,8 @@ async def init_db() -> None:
                 ticket_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 order_id TEXT,
                 channel_id INTEGER,
-                thread_id INTEGER,
                 client_id INTEGER,
+                order_number INTEGER,
                 created_at TEXT,
                 closed_at TEXT,
                 transcript_sent INTEGER DEFAULT 0
@@ -70,19 +66,8 @@ async def init_db() -> None:
                 vouch_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 client_id INTEGER,
                 order_id TEXT,
-                rating INTEGER,
                 message TEXT,
                 created_at TEXT
-            )
-            """
-        )
-        await db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS sticky_messages (
-                channel_id INTEGER PRIMARY KEY,
-                message_content TEXT,
-                embed_json TEXT,
-                last_message_id INTEGER
             )
             """
         )
@@ -136,6 +121,16 @@ async def init_db() -> None:
         )
         await db.execute(
             """
+            CREATE TABLE IF NOT EXISTS message_templates (
+                template_key TEXT PRIMARY KEY,
+                content TEXT,
+                updated_by INTEGER,
+                updated_at TEXT
+            )
+            """
+        )
+        await db.execute(
+            """
             CREATE TABLE IF NOT EXISTS persist_panels (
                 panel TEXT PRIMARY KEY,
                 channel_id INTEGER,
@@ -152,7 +147,6 @@ async def init_db() -> None:
 async def count_orders_in_month(year: int, month: int) -> int:
     prefix = f"MIKA-{month:02d}{year % 100:02d}-"
     async with aiosqlite.connect(DATABASE_PATH) as db:
-        db.row_factory = aiosqlite.Row
         cur = await db.execute(
             "SELECT COUNT(*) FROM orders WHERE order_id LIKE ?",
             (prefix + "%",),
@@ -161,48 +155,59 @@ async def count_orders_in_month(year: int, month: int) -> int:
         return int(row[0]) if row else 0
 
 
+async def count_orders_for_buyer(client_id: int) -> int:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cur = await db.execute(
+            "SELECT COUNT(*) FROM orders WHERE client_id = ?", (client_id,)
+        )
+        row = await cur.fetchone()
+        return int(row[0]) if row else 0
+
+
 async def insert_order(
     order_id: str,
+    handler_id: int,
     client_id: int,
     client_name: str,
-    commission_type: str,
-    tier: str,
-    characters: int,
-    background: str,
-    notes: str,
+    item: str,
+    amount: str,
+    mop: str,
+    price: str,
+    ticket_channel_id: int,
     status: str,
-    boostie: int,
-    reseller: int,
-    base_price: float,
-    final_price: float,
 ) -> None:
     now = _utc_now()
     async with aiosqlite.connect(DATABASE_PATH) as db:
         await db.execute(
             """
             INSERT INTO orders (
-                order_id, client_id, client_name, commission_type, tier,
-                characters, background, notes, status, boostie, reseller,
-                base_price, final_price, payment_method, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+                order_id, handler_id, client_id, client_name, item, amount,
+                mop, price, ticket_channel_id, status, queue_message_id, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
             """,
             (
                 order_id,
+                handler_id,
                 client_id,
                 client_name,
-                commission_type,
-                tier,
-                characters,
-                background,
-                notes,
+                item,
+                amount,
+                mop,
+                price,
+                ticket_channel_id,
                 status,
-                boostie,
-                reseller,
-                base_price,
-                final_price,
                 now,
                 now,
             ),
+        )
+        await db.commit()
+
+
+async def set_order_queue_message_id(order_id: str, queue_message_id: int) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            "UPDATE orders SET queue_message_id = ? WHERE order_id = ?",
+            (queue_message_id, order_id),
         )
         await db.commit()
 
@@ -215,12 +220,6 @@ async def get_order(order_id: str) -> dict[str, Any] | None:
         return dict(row) if row else None
 
 
-async def delete_order(order_id: str) -> None:
-    async with aiosqlite.connect(DATABASE_PATH) as db:
-        await db.execute("DELETE FROM orders WHERE order_id = ?", (order_id,))
-        await db.commit()
-
-
 async def update_order_status(order_id: str, status: str) -> None:
     now = _utc_now()
     async with aiosqlite.connect(DATABASE_PATH) as db:
@@ -231,16 +230,16 @@ async def update_order_status(order_id: str, status: str) -> None:
         await db.commit()
 
 
-async def list_active_orders() -> list[dict[str, Any]]:
-    """Orders shown on queue board (excludes Done and Cancelled)."""
+async def list_orders_for_status_views() -> list[dict[str, Any]]:
+    """Orders that may still have a status dropdown in the ticket channel."""
     async with aiosqlite.connect(DATABASE_PATH) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
             """
             SELECT * FROM orders
-            WHERE status NOT IN ('Done', 'Cancelled')
-            ORDER BY created_at ASC
-            """
+            WHERE status IN ('Noted', 'Processing')
+            AND queue_message_id IS NOT NULL
+            """,
         )
         rows = await cur.fetchall()
         return [dict(r) for r in rows]
@@ -249,30 +248,30 @@ async def list_active_orders() -> list[dict[str, Any]]:
 # --- Tickets ---
 
 
-async def insert_ticket(
-    order_id: str | None,
-    channel_id: int,
-    thread_id: int | None,
-    client_id: int,
-) -> int:
+async def insert_ticket_open(channel_id: int, client_id: int) -> int:
     now = _utc_now()
     async with aiosqlite.connect(DATABASE_PATH) as db:
         cur = await db.execute(
             """
-            INSERT INTO tickets (order_id, channel_id, thread_id, client_id, created_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO tickets (order_id, channel_id, client_id, order_number, created_at)
+            VALUES (NULL, ?, ?, NULL, ?)
             """,
-            (order_id, channel_id, thread_id, client_id, now),
+            (channel_id, client_id, now),
         )
         await db.commit()
         return int(cur.lastrowid)
 
 
-async def update_ticket_order_id(channel_id: int, order_id: str) -> None:
+async def update_ticket_order(
+    channel_id: int, order_id: str, order_number: int
+) -> None:
     async with aiosqlite.connect(DATABASE_PATH) as db:
         await db.execute(
-            "UPDATE tickets SET order_id = ? WHERE channel_id = ?",
-            (order_id, channel_id),
+            """
+            UPDATE tickets SET order_id = ?, order_number = ?
+            WHERE channel_id = ?
+            """,
+            (order_id, order_number, channel_id),
         )
         await db.commit()
 
@@ -303,12 +302,6 @@ async def get_ticket_by_channel(channel_id: int) -> dict[str, Any] | None:
         return dict(row) if row else None
 
 
-async def delete_ticket_by_channel(channel_id: int) -> None:
-    async with aiosqlite.connect(DATABASE_PATH) as db:
-        await db.execute("DELETE FROM tickets WHERE channel_id = ?", (channel_id,))
-        await db.commit()
-
-
 async def close_ticket_record(channel_id: int, transcript_sent: int) -> None:
     now = _utc_now()
     async with aiosqlite.connect(DATABASE_PATH) as db:
@@ -322,15 +315,59 @@ async def close_ticket_record(channel_id: int, transcript_sent: int) -> None:
         await db.commit()
 
 
-async def get_ticket_by_order(order_id: str) -> dict[str, Any] | None:
+async def delete_ticket_by_channel(channel_id: int) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute("DELETE FROM tickets WHERE channel_id = ?", (channel_id,))
+        await db.commit()
+
+
+# --- Message templates ---
+
+
+async def get_message_template_row(key: str) -> dict[str, Any] | None:
     async with aiosqlite.connect(DATABASE_PATH) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
-            "SELECT * FROM tickets WHERE order_id = ? AND closed_at IS NULL",
-            (order_id,),
+            "SELECT * FROM message_templates WHERE template_key = ?", (key,)
         )
         row = await cur.fetchone()
         return dict(row) if row else None
+
+
+async def upsert_message_template(
+    key: str, content: str, updated_by: int
+) -> None:
+    now = _utc_now()
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """
+            INSERT INTO message_templates (template_key, content, updated_by, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(template_key) DO UPDATE SET
+                content = excluded.content,
+                updated_by = excluded.updated_by,
+                updated_at = excluded.updated_at
+            """,
+            (key, content, updated_by, now),
+        )
+        await db.commit()
+
+
+async def delete_all_message_templates() -> int:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cur = await db.execute("DELETE FROM message_templates")
+        await db.commit()
+        return cur.rowcount
+
+
+async def list_message_template_rows() -> list[dict[str, Any]]:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM message_templates ORDER BY template_key"
+        )
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
 
 
 # --- Warns ---
@@ -387,20 +424,15 @@ async def clear_warns_user(user_id: int) -> int:
 # --- Vouches ---
 
 
-async def insert_vouch(
-    client_id: int,
-    order_id: str | None,
-    rating: int,
-    message: str,
-) -> int:
+async def insert_vouch(client_id: int, order_id: str | None, message: str) -> int:
     now = _utc_now()
     async with aiosqlite.connect(DATABASE_PATH) as db:
         cur = await db.execute(
             """
-            INSERT INTO vouches (client_id, order_id, rating, message, created_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO vouches (client_id, order_id, message, created_at)
+            VALUES (?, ?, ?, ?)
             """,
-            (client_id, order_id, rating, message, now),
+            (client_id, order_id, message, now),
         )
         await db.commit()
         return int(cur.lastrowid)
@@ -413,63 +445,6 @@ async def list_vouches_for_user(client_id: int) -> list[dict[str, Any]]:
             "SELECT * FROM vouches WHERE client_id = ? ORDER BY vouch_id DESC",
             (client_id,),
         )
-        rows = await cur.fetchall()
-        return [dict(r) for r in rows]
-
-
-# --- Sticky ---
-
-
-async def upsert_sticky(
-    channel_id: int,
-    message_content: str,
-    embed_json: str | None,
-    last_message_id: int | None,
-) -> None:
-    async with aiosqlite.connect(DATABASE_PATH) as db:
-        await db.execute(
-            """
-            INSERT INTO sticky_messages (channel_id, message_content, embed_json, last_message_id)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(channel_id) DO UPDATE SET
-                message_content = excluded.message_content,
-                embed_json = excluded.embed_json,
-                last_message_id = excluded.last_message_id
-            """,
-            (channel_id, message_content, embed_json, last_message_id),
-        )
-        await db.commit()
-
-
-async def update_sticky_message_id(channel_id: int, last_message_id: int) -> None:
-    async with aiosqlite.connect(DATABASE_PATH) as db:
-        await db.execute(
-            "UPDATE sticky_messages SET last_message_id = ? WHERE channel_id = ?",
-            (last_message_id, channel_id),
-        )
-        await db.commit()
-
-
-async def get_sticky(channel_id: int) -> dict[str, Any] | None:
-    async with aiosqlite.connect(DATABASE_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cur = await db.execute(
-            "SELECT * FROM sticky_messages WHERE channel_id = ?", (channel_id,)
-        )
-        row = await cur.fetchone()
-        return dict(row) if row else None
-
-
-async def delete_sticky(channel_id: int) -> None:
-    async with aiosqlite.connect(DATABASE_PATH) as db:
-        await db.execute("DELETE FROM sticky_messages WHERE channel_id = ?", (channel_id,))
-        await db.commit()
-
-
-async def list_all_stickies() -> list[dict[str, Any]]:
-    async with aiosqlite.connect(DATABASE_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cur = await db.execute("SELECT * FROM sticky_messages")
         rows = await cur.fetchall()
         return [dict(r) for r in rows]
 
@@ -508,9 +483,7 @@ async def loyalty_top(limit: int = 10) -> list[dict[str, Any]]:
     async with aiosqlite.connect(DATABASE_PATH) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
-            """
-            SELECT * FROM loyalty ORDER BY completed_count DESC LIMIT ?
-            """,
+            "SELECT * FROM loyalty ORDER BY completed_count DESC LIMIT ?",
             (limit,),
         )
         rows = await cur.fetchall()
@@ -552,10 +525,7 @@ async def get_shop_state() -> dict[str, Any]:
         return dict(row) if row else {"is_open": 0}
 
 
-async def set_shop_state(
-    is_open: bool,
-    toggled_by: int | None,
-) -> None:
+async def set_shop_state(is_open: bool, toggled_by: int | None) -> None:
     now = _utc_now()
     flag = 1 if is_open else 0
     async with aiosqlite.connect(DATABASE_PATH) as db:
@@ -580,28 +550,35 @@ async def set_shop_state(
         await db.commit()
 
 
-# --- Queue message ---
+async def shop_is_open_db() -> bool:
+    st = await get_shop_state()
+    return bool(st.get("is_open", 0))
 
 
-async def set_queue_message(channel_id: int, message_id: int) -> None:
+# --- Persist panels ---
+
+
+async def set_persist_panel(panel: str, channel_id: int, message_id: int) -> None:
     async with aiosqlite.connect(DATABASE_PATH) as db:
         await db.execute(
             """
-            INSERT INTO queue_message (id, channel_id, message_id)
-            VALUES (1, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
+            INSERT INTO persist_panels (panel, channel_id, message_id)
+            VALUES (?, ?, ?)
+            ON CONFLICT(panel) DO UPDATE SET
                 channel_id = excluded.channel_id,
                 message_id = excluded.message_id
             """,
-            (channel_id, message_id),
+            (panel, channel_id, message_id),
         )
         await db.commit()
 
 
-async def get_queue_message() -> dict[str, Any] | None:
+async def get_persist_panel(panel: str) -> dict[str, Any] | None:
     async with aiosqlite.connect(DATABASE_PATH) as db:
         db.row_factory = aiosqlite.Row
-        cur = await db.execute("SELECT * FROM queue_message WHERE id = 1")
+        cur = await db.execute(
+            "SELECT * FROM persist_panels WHERE panel = ?", (panel,)
+        )
         row = await cur.fetchone()
         return dict(row) if row else None
 
@@ -630,53 +607,14 @@ async def list_drops_for_user(client_id: int) -> list[dict[str, Any]]:
         return [dict(r) for r in rows]
 
 
-# --- Persist panels (ticket, tos, payment) ---
+# --- Default templates JSON (sync) ---
 
 
-async def set_persist_panel(panel: str, channel_id: int, message_id: int) -> None:
-    async with aiosqlite.connect(DATABASE_PATH) as db:
-        await db.execute(
-            """
-            INSERT INTO persist_panels (panel, channel_id, message_id)
-            VALUES (?, ?, ?)
-            ON CONFLICT(panel) DO UPDATE SET
-                channel_id = excluded.channel_id,
-                message_id = excluded.message_id
-            """,
-            (panel, channel_id, message_id),
-        )
-        await db.commit()
+def load_default_templates() -> dict[str, str]:
+    import json
 
+    from config import TEMPLATES_FILE
 
-async def get_persist_panel(panel: str) -> dict[str, Any] | None:
-    async with aiosqlite.connect(DATABASE_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cur = await db.execute(
-            "SELECT * FROM persist_panels WHERE panel = ?", (panel,)
-        )
-        row = await cur.fetchone()
-        return dict(row) if row else None
-
-
-async def shop_is_open_db() -> bool:
-    st = await get_shop_state()
-    return bool(st.get("is_open", 0))
-
-
-# --- Stocks JSON ---
-
-
-def load_stocks() -> dict[str, Any]:
-    from config import STOCKS_FILE
-
-    if not STOCKS_FILE.exists():
-        STOCKS_FILE.write_text("{}", encoding="utf-8")
-    return json.loads(STOCKS_FILE.read_text(encoding="utf-8"))
-
-
-def save_stocks(data: dict[str, Any]) -> None:
-    from config import STOCKS_FILE
-
-    STOCKS_FILE.write_text(
-        json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    if not TEMPLATES_FILE.exists():
+        return {}
+    return json.loads(TEMPLATES_FILE.read_text(encoding="utf-8"))
