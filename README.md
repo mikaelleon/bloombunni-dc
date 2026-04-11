@@ -26,7 +26,8 @@ Python Discord bot for a digital art commission shop: tickets, **`/queue`** orde
 
 4. Configure environment variables:
 
-   - Copy [`.env.example`](.env.example) to `.env` and fill in all IDs and secrets.
+   - Copy [`.env.example`](.env.example) to `.env` and set `BOT_TOKEN` and payment fields.
+   - In Discord, run **`/serverconfig`** (channel, category, role, show) to pick channels and roles—no channel/role IDs in `.env`.
    - Never commit `.env` or push secrets to Git.
 
 5. **If upgrading from an older schema**, delete `bot.db` so the new tables can be created (or migrate manually).
@@ -41,11 +42,11 @@ Python Discord bot for a digital art commission shop: tickets, **`/queue`** orde
 
 In the [Discord Developer Portal](https://discord.com/developers/applications), enable **Message Content Intent** and **Server Members Intent**. Grant the bot permissions for managing channels/categories, roles, embeds, files, and history where needed.
 
-Slash commands are **guild-synced** to `GUILD_ID` from `.env`.
+If `GUILD_ID` is set in `.env`, slash commands are **guild-synced** for fast updates; omit it to sync globally (slower to propagate).
 
 ## Environment variables
 
-See [`.env.example`](.env.example) and [`config.py`](config.py). Startup fails with a clear error if a required variable is missing.
+See [`.env.example`](.env.example) and [`config.py`](config.py). Only **secrets and payment copy** load from the environment; channel and role targets are stored in SQLite after you use `/serverconfig`.
 
 ## Project layout
 
@@ -54,11 +55,14 @@ bot/
 ├── main.py
 ├── keep_alive.py
 ├── config.py
+├── guild_keys.py
+├── guild_config.py
 ├── database.py
 ├── requirements.txt
 ├── tos.txt
 ├── templates.json       # Default message templates (overridable via DB)
 ├── cogs/
+│   └── serverconfig.py
 └── utils/
 ```
 
@@ -66,6 +70,7 @@ bot/
 
 | Area | Commands |
 |------|----------|
+| Config | `/serverconfig channel`, `/serverconfig category`, `/serverconfig role`, `/serverconfig show` |
 | Setup | `/setup tickets`, `/setup tos`, `/setup payment` |
 | Shop | `/shop open`, `/shop close`, `/shopstatus` |
 | Queue | `/queue` (staff), `/settemplate`, `/viewtemplate`, `/listtemplates`, `/resettemplates`, `/loyalty`, `/loyaltytop` |

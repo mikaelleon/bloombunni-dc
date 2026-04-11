@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import config
 import discord
 from discord.ext import commands
 
-import config
 import database as db
+import guild_keys as gk
+from guild_config import get_text_channel
 from utils.embeds import PRIMARY, error_embed, success_embed
 
 class PaymentView(discord.ui.View):
@@ -49,8 +51,8 @@ class PaymentCog(commands.Cog, name="PaymentCog"):
 
     async def run_setup_payment(self, interaction: discord.Interaction) -> None:
         """Invoked from `/setup payment`."""
-        ch = interaction.guild.get_channel(config.PAYMENT_CHANNEL_ID)
-        if not isinstance(ch, discord.TextChannel):
+        ch = await get_text_channel(interaction.guild, gk.PAYMENT_CHANNEL)
+        if not ch:
             await interaction.response.send_message(
                 embed=error_embed("Config", "Payment channel invalid."), ephemeral=True
             )

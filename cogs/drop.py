@@ -6,8 +6,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-import config
 import database as db
+import guild_keys as gk
 from utils.checks import is_staff
 from utils.embeds import PRIMARY, error_embed, info_embed, success_embed
 
@@ -20,12 +20,12 @@ class DropLinkView(discord.ui.View):
         )
 
 
-def delivery_ready_embed() -> discord.Embed:
+def delivery_ready_embed(vouches_mention: str) -> discord.Embed:
     return discord.Embed(
         title="📦 Your Order is Ready!",
         description=(
             "Your commission is complete. Please respect watermark & TOS.\n"
-            f"When you can, leave a vouch in <#{config.VOUCHES_CHANNEL_ID}>."
+            f"When you can, leave a vouch in {vouches_mention}."
         ),
         color=PRIMARY,
     )
@@ -35,8 +35,12 @@ async def send_completion_delivery_dm(
     bot: commands.Bot, member: discord.Member, order_id: str
 ) -> None:
     """Optional delivery-style DM when an order is marked completed (no file link)."""
+    if not member.guild:
+        return
+    vid = await db.get_guild_setting(member.guild.id, gk.VOUCHES_CHANNEL)
+    mention = f"<#{vid}>" if vid else "#vouches"
     try:
-        await member.send(embed=delivery_ready_embed())
+        await member.send(embed=delivery_ready_embed(mention))
     except discord.Forbidden:
         pass
 
@@ -56,7 +60,13 @@ class DropCog(commands.Cog, name="DropCog"):
         order_id: str | None = None,
     ) -> None:
         await interaction.response.defer(ephemeral=True)
-        emb = delivery_ready_embed()
+        vid = (
+            await db.get_guild_setting(interaction.guild.id, gk.VOUCHES_CHANNEL)
+            if interaction.guild
+            else None
+        )
+        mention = f"<#{vid}>" if vid else "#vouches"
+        emb = delivery_ready_embed(mention)
         view = DropLinkView(link)
         try:
             await member.send(embed=emb, view=view)

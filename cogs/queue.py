@@ -10,8 +10,9 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-import config
 import database as db
+import guild_keys as gk
+from guild_config import ticket_category_ids
 from utils.checks import is_staff
 from utils.embeds import PRIMARY, error_embed, info_embed, queue_embed, success_embed
 
@@ -62,6 +63,8 @@ async def build_queue_entry_text(
     *,
     order_number: int,
     buyer_display_name: str,
+    queue_channel_id: int,
+    vouches_channel_id: int,
 ) -> str:
     """Multi-line queue card body for the queue channel embed."""
     buyer = guild.get_member(int(order["client_id"]))
@@ -71,8 +74,8 @@ async def build_queue_entry_text(
 
     slug = f"{sanitize_buyer_name(buyer_display_name)}.{order_number}"
 
-    qlink = queue_jump_url(guild.id, config.QUEUE_CHANNEL_ID, queue_message_id)
-    vouches_ch = f"<#{config.VOUCHES_CHANNEL_ID}>"
+    qlink = queue_jump_url(guild.id, queue_channel_id, queue_message_id)
+    vouches_ch = f"<#{vouches_channel_id}>"
 
     ctx = {
         "buyer": buyer_mention,
@@ -157,7 +160,12 @@ class OrderStatusView(discord.ui.View):
                 embed=error_embed("Error", "Use this in the server."), ephemeral=True
             )
             return
-        staff = interaction.guild.get_role(config.STAFF_ROLE_ID)
+        staff_rid = await db.get_guild_setting(interaction.guild.id, gk.STAFF_ROLE)
+        staff = (
+            interaction.guild.get_role(int(staff_rid))
+            if staff_rid
+            else None
+        )
         if not staff or staff not in interaction.user.roles:
             await interaction.response.send_message(
                 embed=error_embed("Staff only", "You cannot use this menu."), ephemeral=True
@@ -252,8 +260,19 @@ class QueueCog(commands.Cog, name="QueueCog"):
                 embed=error_embed("Error", "Invalid order state for Processing."), ephemeral=True
             )
             return
-        guild = self.bot.get_guild(config.GUILD_ID)
+        guild = interaction.guild
         if not guild:
+            return
+        qcid = await db.get_guild_setting(guild.id, gk.QUEUE_CHANNEL)
+        vcid = await db.get_guild_setting(guild.id, gk.VOUCHES_CHANNEL)
+        if not qcid or not vcid:
+            await interaction.followup.send(
+                embed=error_embed(
+                    "Config",
+                    "Queue or vouches channel not set. Use `/serverconfig channel`.",
+                ),
+                ephemeral=True,
+            )
             return
         await db.update_order_status(order_id, "Processing")
         qmid = int(order["queue_message_id"])
@@ -266,9 +285,11 @@ class QueueCog(commands.Cog, name="QueueCog"):
             "Processing",
             order_number=onum,
             buyer_display_name=str(order.get("client_name") or "buyer"),
+            queue_channel_id=int(qcid),
+            vouches_channel_id=int(vcid),
         )
         emb = queue_embed(order, body)
-        ch = guild.get_channel(config.QUEUE_CHANNEL_ID)
+        ch = guild.get_channel(int(qcid))
         if isinstance(ch, discord.TextChannel):
             try:
                 msg = await ch.fetch_message(qmid)
@@ -282,10 +303,12 @@ class QueueCog(commands.Cog, name="QueueCog"):
             trow = await db.get_ticket_by_channel(tick.id)
             num = int(trow["order_number"]) if trow and trow.get("order_number") else 1
             try:
-                await tick.edit(
-                    name=f"processing_{slug}.{num}"[:100],
-                    category=guild.get_channel(config.PROCESSING_CATEGORY_ID),
-                )
+                pcid = await db.get_guild_setting(guild.id, gk.PROCESSING_CATEGORY)
+                pcat = guild.get_channel(int(pcid)) if pcid else None
+                p_kw: dict[str, Any] = {"name": f"processing_{slug}.{num}"[:100]}
+                if isinstance(pcat, discord.CategoryChannel):
+                    p_kw["category"] = pcat
+                await tick.edit(**p_kw)
             except discord.Forbidden:
                 pass
         buyer = guild.get_member(int(order["client_id"]))
@@ -300,8 +323,8 @@ class QueueCog(commands.Cog, name="QueueCog"):
                     "mop": order.get("mop", ""),
                     "price": order.get("price", ""),
                     "channel_name": tick.name,
-                    "queue_link": queue_jump_url(guild.id, config.QUEUE_CHANNEL_ID, qmid),
-                    "vouches_channel": f"<#{config.VOUCHES_CHANNEL_ID}>",
+                    "queue_link": queue_jump_url(guild.id, int(qcid), qmid),
+                    "vouches_channel": f"<#{vcid}>",
                 },
             )
             if buyer:
@@ -321,8 +344,16 @@ class QueueCog(commands.Cog, name="QueueCog"):
                 embed=error_embed("Error", "Invalid order state for Completed."), ephemeral=True
             )
             return
-        guild = self.bot.get_guild(config.GUILD_ID)
+        guild = interaction.guild
         if not guild:
+            return
+        qcid = await db.get_guild_setting(guild.id, gk.QUEUE_CHANNEL)
+        vcid = await db.get_guild_setting(guild.id, gk.VOUCHES_CHANNEL)
+        if not qcid or not vcid:
+            await interaction.followup.send(
+                embed=error_embed("Config", "Queue or vouches channel not set."),
+                ephemeral=True,
+            )
             return
 
         await db.update_order_status(order_id, "Done")
@@ -336,9 +367,11 @@ class QueueCog(commands.Cog, name="QueueCog"):
             "Done",
             order_number=onum,
             buyer_display_name=str(order.get("client_name") or "buyer"),
+            queue_channel_id=int(qcid),
+            vouches_channel_id=int(vcid),
         )
         emb = queue_embed(order, body)
-        qch = guild.get_channel(config.QUEUE_CHANNEL_ID)
+        qch = guild.get_channel(int(qcid))
         if isinstance(qch, discord.TextChannel):
             try:
                 msg = await qch.fetch_message(qmid)
@@ -354,10 +387,12 @@ class QueueCog(commands.Cog, name="QueueCog"):
 
         if isinstance(tick, discord.TextChannel):
             try:
-                await tick.edit(
-                    name=f"done_{slug}.{num}"[:100],
-                    category=guild.get_channel(config.DONE_CATEGORY_ID),
-                )
+                dcid = await db.get_guild_setting(guild.id, gk.DONE_CATEGORY)
+                dcat = guild.get_channel(int(dcid)) if dcid else None
+                d_kw: dict[str, Any] = {"name": f"done_{slug}.{num}"[:100]}
+                if isinstance(dcat, discord.CategoryChannel):
+                    d_kw["category"] = dcat
+                await tick.edit(**d_kw)
             except discord.Forbidden:
                 pass
             ctx = {
@@ -368,8 +403,8 @@ class QueueCog(commands.Cog, name="QueueCog"):
                 "mop": order.get("mop", ""),
                 "price": order.get("price", ""),
                 "channel_name": tick.name,
-                "queue_link": queue_jump_url(guild.id, config.QUEUE_CHANNEL_ID, qmid),
-                "vouches_channel": f"<#{config.VOUCHES_CHANNEL_ID}>",
+                "queue_link": queue_jump_url(guild.id, int(qcid), qmid),
+                "vouches_channel": f"<#{vcid}>",
             }
             done_msg = resolve_template(await get_template("completed_message"), **ctx)
             if buyer:
@@ -379,7 +414,8 @@ class QueueCog(commands.Cog, name="QueueCog"):
                     pass
 
         if buyer:
-            role = guild.get_role(config.PLEASE_VOUCH_ROLE_ID)
+            pvr = await db.get_guild_setting(guild.id, gk.PLEASE_VOUCH_ROLE)
+            role = guild.get_role(int(pvr)) if pvr else None
             if role:
                 try:
                     await buyer.add_roles(role, reason="Order completed")
@@ -433,11 +469,8 @@ class QueueCog(commands.Cog, name="QueueCog"):
     ) -> None:
         await interaction.response.defer(ephemeral=True)
 
-        if channel.category_id not in (
-            config.TICKET_CATEGORY_ID,
-            config.NOTED_CATEGORY_ID,
-            config.PROCESSING_CATEGORY_ID,
-        ):
+        valid_cats = await ticket_category_ids(interaction.guild.id)
+        if not valid_cats or channel.category_id not in valid_cats:
             await interaction.followup.send(
                 embed=error_embed("Channel", "Pick a valid ticket channel."), ephemeral=True
             )
@@ -467,12 +500,18 @@ class QueueCog(commands.Cog, name="QueueCog"):
 
         await db.update_ticket_order(channel.id, order_id, order_number)
 
+        noted_cid = await db.get_guild_setting(interaction.guild.id, gk.NOTED_CATEGORY)
+        noted_cat = (
+            interaction.guild.get_channel(int(noted_cid))
+            if noted_cid
+            else None
+        )
         slug = sanitize_buyer_name(buyer.display_name)
         try:
-            await channel.edit(
-                name=f"noted_{slug}.{order_number}"[:100],
-                category=interaction.guild.get_channel(config.NOTED_CATEGORY_ID),
-            )
+            edit_kw: dict[str, Any] = {"name": f"noted_{slug}.{order_number}"[:100]}
+            if isinstance(noted_cat, discord.CategoryChannel):
+                edit_kw["category"] = noted_cat
+            await channel.edit(**edit_kw)
         except discord.Forbidden:
             pass
 
@@ -480,7 +519,19 @@ class QueueCog(commands.Cog, name="QueueCog"):
         order_row = await db.get_order(order_id)
         assert order_row
 
-        q_ch = guild.get_channel(config.QUEUE_CHANNEL_ID)
+        qcid = await db.get_guild_setting(guild.id, gk.QUEUE_CHANNEL)
+        vcid = await db.get_guild_setting(guild.id, gk.VOUCHES_CHANNEL)
+        if not qcid or not vcid:
+            await interaction.followup.send(
+                embed=error_embed(
+                    "Config",
+                    "Set **Queue** and **Vouches** channels with `/serverconfig channel` first.",
+                ),
+                ephemeral=True,
+            )
+            return
+
+        q_ch = guild.get_channel(int(qcid))
         qmid = 0
         if isinstance(q_ch, discord.TextChannel):
             try:
@@ -507,6 +558,8 @@ class QueueCog(commands.Cog, name="QueueCog"):
             "Noted",
             order_number=order_number,
             buyer_display_name=buyer.display_name,
+            queue_channel_id=int(qcid),
+            vouches_channel_id=int(vcid),
         )
         emb_q = queue_embed(order_row, body)
         try:
@@ -515,7 +568,7 @@ class QueueCog(commands.Cog, name="QueueCog"):
         except (discord.NotFound, discord.Forbidden):
             pass
 
-        qlink = queue_jump_url(guild.id, config.QUEUE_CHANNEL_ID, qmid)
+        qlink = queue_jump_url(guild.id, int(qcid), qmid)
         noted_title = resolve_template(await get_template("noted_channel"), buyer=buyer.mention)
         noted_buyer = resolve_template(
             await get_template("noted_buyer_line"),
@@ -527,7 +580,7 @@ class QueueCog(commands.Cog, name="QueueCog"):
             price=price,
             channel_name=channel.name,
             queue_link=qlink,
-            vouches_channel=f"<#{config.VOUCHES_CHANNEL_ID}>",
+            vouches_channel=f"<#{vcid}>",
         )
         noted_inst = resolve_template(
             await get_template("noted_instructions"),
@@ -539,7 +592,7 @@ class QueueCog(commands.Cog, name="QueueCog"):
             price=price,
             channel_name=channel.name,
             queue_link=qlink,
-            vouches_channel=f"<#{config.VOUCHES_CHANNEL_ID}>",
+            vouches_channel=f"<#{vcid}>",
         )
         emb_ticket = discord.Embed(
             title=noted_title[:256],

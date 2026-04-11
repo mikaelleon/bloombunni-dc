@@ -25,8 +25,8 @@ async def generate_transcript(
     parts: list[str] = [
         "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Transcript</title>",
         "<style>body{font-family:Segoe UI,sans-serif;background:#1e1e2e;color:#cdd6f4;padding:24px;}",
-        ".meta{color:#94e2d5;margin-bottom:16px;} .msg{border-left:3px solid #669b9a;padding:8px 12px;margin:8px 0;background:#181825;}",
-        ".author{font-weight:bold;color:#89dceb;} .time{color:#6c7086;font-size:0.85em;} blockquote{border-left:2px solid #669b9a;margin:4px 0;padding-left:8px;color:#bac2de;}",
+        ".meta{color:#94e2d5;margin-bottom:16px;} .msg{border-left:3px solid #242429;padding:8px 12px;margin:8px 0;background:#181825;}",
+        ".author{font-weight:bold;color:#89dceb;} .time{color:#6c7086;font-size:0.85em;} blockquote{border-left:2px solid #242429;margin:4px 0;padding-left:8px;color:#bac2de;}",
         "a{color:#89b4fa;}</style></head><body>",
         f"<div class='meta'><strong>Server:</strong> {guild_name}<br>",
         f"<strong>Channel:</strong> #{ch_name}<br>",

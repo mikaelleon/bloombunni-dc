@@ -6,8 +6,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-import config
 import database as db
+import guild_keys as gk
 from utils.checks import is_staff
 from utils.embeds import PRIMARY, error_embed, info_embed, success_embed
 
@@ -44,9 +44,11 @@ class VouchCog(commands.Cog, name="VouchCog"):
     async def on_message(self, message: discord.Message) -> None:
         if message.author.bot or not message.guild:
             return
-        if message.channel.id != config.VOUCHES_CHANNEL_ID:
+        vcid = await db.get_guild_setting(message.guild.id, gk.VOUCHES_CHANNEL)
+        if not vcid or message.channel.id != int(vcid):
             return
-        role = message.guild.get_role(config.PLEASE_VOUCH_ROLE_ID)
+        pvr = await db.get_guild_setting(message.guild.id, gk.PLEASE_VOUCH_ROLE)
+        role = message.guild.get_role(int(pvr)) if pvr else None
         if not role or not isinstance(message.author, discord.Member):
             return
         if role not in message.author.roles:
@@ -72,7 +74,8 @@ class VouchCog(commands.Cog, name="VouchCog"):
     ) -> None:
         await interaction.response.defer(ephemeral=True)
         await db.insert_vouch(member.id, order_id, message)
-        role = interaction.guild.get_role(config.PLEASE_VOUCH_ROLE_ID)
+        pvr = await db.get_guild_setting(interaction.guild.id, gk.PLEASE_VOUCH_ROLE)
+        role = interaction.guild.get_role(int(pvr)) if pvr else None
         if role and role in member.roles:
             try:
                 await member.remove_roles(role)
@@ -84,13 +87,14 @@ class VouchCog(commands.Cog, name="VouchCog"):
                 await member.remove_roles(role)
             except discord.Forbidden:
                 pass
-        ch = interaction.guild.get_channel(config.VOUCHES_CHANNEL_ID)
+        vcid = await db.get_guild_setting(interaction.guild.id, gk.VOUCHES_CHANNEL)
+        ch = interaction.guild.get_channel(int(vcid)) if vcid else None
         emb = discord.Embed(
             title="⭐ Vouch",
             description=f"**{member.display_name}**\n{message}\nOrder: `{order_id}`",
             color=PRIMARY,
         )
-        if isinstance(ch, discord.TextChannel):
+        if isinstance(ch, (discord.TextChannel, discord.NewsChannel)):
             await ch.send(embed=emb)
         await interaction.followup.send(
             embed=success_embed("Logged", "Vouch posted."), ephemeral=True

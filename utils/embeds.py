@@ -6,12 +6,15 @@ from typing import Any
 
 import discord
 
-PRIMARY = 0x669B9A
-DARK = 0x135352
-LIGHT = 0xF4ECED
-DANGER = 0x2D2325
-WARNING = 0xF4A261
-SUCCESS = 0x2D6A4F
+# Default sidebar color for all bot embeds (#242429)
+DEFAULT_EMBED_COLOR = 0x242429
+
+PRIMARY = DEFAULT_EMBED_COLOR
+DARK = DEFAULT_EMBED_COLOR
+LIGHT = DEFAULT_EMBED_COLOR
+DANGER = DEFAULT_EMBED_COLOR
+WARNING = DEFAULT_EMBED_COLOR
+SUCCESS = DEFAULT_EMBED_COLOR
 
 
 def success_embed(title: str, description: str) -> discord.Embed:

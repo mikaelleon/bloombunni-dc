@@ -10,8 +10,9 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-import config
 import database as db
+import guild_keys as gk
+from guild_config import get_category, get_role, get_text_channel
 from utils.checks import is_staff
 from utils.embeds import PRIMARY, error_embed, info_embed, success_embed
 
@@ -55,17 +56,19 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
     @setup_group.command(name="tickets", description="Post the ticket panel in Start Here")
     @is_staff()
     async def setup_tickets(self, interaction: discord.Interaction) -> None:
-        ch = interaction.guild.get_channel(config.START_HERE_CHANNEL_ID)
-        if not isinstance(ch, discord.TextChannel):
+        ch = await get_text_channel(interaction.guild, gk.START_HERE_CHANNEL)
+        if not ch:
             await interaction.response.send_message(
                 embed=error_embed("Config", "Start Here channel invalid."), ephemeral=True
             )
             return
+        tos_cid = await db.get_guild_setting(interaction.guild.id, gk.TOS_CHANNEL)
+        tos_line = f"You need the TOS role — agree in <#{tos_cid}> first.\n" if tos_cid else "You need the TOS role first.\n"
         emb = discord.Embed(
             title="Commissions",
             description=(
                 "Click **Open a Ticket** to get a private channel with staff.\n"
-                f"You need the TOS role — agree in <#{config.TOS_CHANNEL_ID}> first.\n"
+                f"{tos_line}"
                 "After staff gather your details, they will register your order with `/queue`."
             ),
             color=PRIMARY,
@@ -104,13 +107,12 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
                 embed=error_embed("Error", "Use this in the server."), ephemeral=True
             )
             return
-        tos_role = interaction.guild.get_role(config.TOS_AGREED_ROLE_ID)
+        tos_role = await get_role(interaction.guild, gk.TOS_AGREED_ROLE)
+        tos_cid = await db.get_guild_setting(interaction.guild.id, gk.TOS_CHANNEL)
+        tos_hint = f"Please read and agree in <#{tos_cid}> first." if tos_cid else "Please read and agree to the TOS first."
         if tos_role is None or tos_role not in interaction.user.roles:
             await interaction.response.send_message(
-                embed=error_embed(
-                    "Terms required",
-                    f"Please read and agree in <#{config.TOS_CHANNEL_ID}> first.",
-                ),
+                embed=error_embed("Terms required", tos_hint),
                 ephemeral=True,
             )
             return
@@ -130,14 +132,14 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
 
         await interaction.response.defer(ephemeral=True)
 
-        category = interaction.guild.get_channel(config.TICKET_CATEGORY_ID)
-        if not isinstance(category, discord.CategoryChannel):
+        category = await get_category(interaction.guild, gk.TICKET_CATEGORY)
+        if not category:
             await interaction.followup.send(
                 embed=error_embed("Config", "Ticket category missing."), ephemeral=True
             )
             return
 
-        staff_role = interaction.guild.get_role(config.STAFF_ROLE_ID)
+        staff_role = await get_role(interaction.guild, gk.STAFF_ROLE)
         overwrites: dict[discord.abc.Snowflake, discord.PermissionOverwrite] = {
             interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
             interaction.guild.me: discord.PermissionOverwrite(
@@ -201,7 +203,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
                 embed=error_embed("Error", "Not a ticket channel."), ephemeral=True
             )
             return
-        staff_role = interaction.guild.get_role(config.STAFF_ROLE_ID)
+        staff_role = await get_role(interaction.guild, gk.STAFF_ROLE)
         is_staff_u = (
             staff_role
             and isinstance(interaction.user, discord.Member)
@@ -243,8 +245,8 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             except discord.Forbidden:
                 dm_ok = False
 
-        trans_ch = interaction.guild.get_channel(config.TRANSCRIPT_CHANNEL_ID)
-        if isinstance(trans_ch, discord.TextChannel):
+        trans_ch = await get_text_channel(interaction.guild, gk.TRANSCRIPT_CHANNEL)
+        if trans_ch:
             try:
                 await trans_ch.send(
                     embed=info_embed("Transcript", f"Ticket {interaction.channel.name}"),
@@ -253,7 +255,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             except (discord.Forbidden, discord.HTTPException):
                 pass
 
-        if not dm_ok and isinstance(trans_ch, discord.TextChannel):
+        if not dm_ok and trans_ch:
             try:
                 await trans_ch.send(
                     content=f"⚠️ Could not DM transcript to <@{ticket['client_id']}>.",

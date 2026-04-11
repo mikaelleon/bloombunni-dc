@@ -144,7 +144,7 @@ async def init_db() -> None:
                 channel_id INTEGER PRIMARY KEY,
                 title TEXT,
                 description TEXT,
-                color TEXT DEFAULT '#669b9a',
+                color TEXT DEFAULT '#242429',
                 image_url TEXT,
                 footer TEXT,
                 thumbnail_url TEXT,
@@ -154,7 +154,56 @@ async def init_db() -> None:
             )
             """
         )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS guild_settings (
+                guild_id INTEGER NOT NULL,
+                setting_key TEXT NOT NULL,
+                value INTEGER NOT NULL,
+                PRIMARY KEY (guild_id, setting_key)
+            )
+            """
+        )
         await db.commit()
+
+
+# --- Guild settings (channels / roles) ---
+
+
+async def get_guild_setting(guild_id: int, key: str) -> int | None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cur = await db.execute(
+            "SELECT value FROM guild_settings WHERE guild_id = ? AND setting_key = ?",
+            (guild_id, key),
+        )
+        row = await cur.fetchone()
+        if not row:
+            return None
+        return int(row[0])
+
+
+async def set_guild_setting(guild_id: int, key: str, value: int) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            "DELETE FROM guild_settings WHERE guild_id = ? AND setting_key = ?",
+            (guild_id, key),
+        )
+        await db.execute(
+            "INSERT INTO guild_settings (guild_id, setting_key, value) VALUES (?, ?, ?)",
+            (guild_id, key, value),
+        )
+        await db.commit()
+
+
+async def list_guild_settings(guild_id: int) -> dict[str, int]:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT setting_key, value FROM guild_settings WHERE guild_id = ?",
+            (guild_id,),
+        )
+        rows = await cur.fetchall()
+        return {str(r["setting_key"]): int(r["value"]) for r in rows}
 
 
 # --- Orders ---
@@ -692,7 +741,7 @@ async def patch_sticky(channel_id: int, updates: dict[str, Any]) -> bool:
             (
                 fields.get("title"),
                 fields.get("description"),
-                fields.get("color") or "#669b9a",
+                fields.get("color") or "#242429",
                 fields.get("image_url"),
                 fields.get("footer"),
                 fields.get("thumbnail_url"),

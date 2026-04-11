@@ -6,12 +6,32 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-import config
 import database as db
+import guild_keys as gk
+from guild_config import get_text_channel
 from utils.checks import is_staff
-from utils.embeds import PRIMARY, error_embed, info_embed, success_embed, warning_embed
+from utils.embeds import DEFAULT_EMBED_COLOR, PRIMARY, error_embed, info_embed, success_embed, warning_embed
 
 WARN_THRESHOLD = 3
+
+
+def _norm_reason(reason: str | None) -> str:
+    r = (reason or "").strip()
+    return r if r else "no reason specified"
+
+
+def _warn_notice_embed(*, shop_name: str, reason: str, total: int) -> discord.Embed:
+    """DM notice styled like the reference (⚠️ WARNED NOTICE !)."""
+    return discord.Embed(
+        title="⚠️ WARNED NOTICE !",
+        description=(
+            f"hello ! you have been **warned** from **{shop_name}** for **{reason}**. "
+            f"**take note** that once you received a total of **{WARN_THRESHOLD} warnings** from them you will be "
+            f"**automatically banned** from their **server**. so, please **follow** their **rules. thank you !** "
+            f"your **warning count : {total}** ⚠️"
+        ),
+        color=DEFAULT_EMBED_COLOR,
+    )
 
 
 class WarnPages(discord.ui.View):
@@ -43,48 +63,73 @@ class WarnCog(commands.Cog, name="WarnCog"):
         self.bot = bot
 
     @app_commands.command(name="warn", description="Warn a member (staff)")
-    @app_commands.describe(member="Member to warn", reason="Reason")
+    @app_commands.describe(user="User to warn", reason="Reason (optional)")
     @is_staff()
     async def warn_cmd(
         self,
         interaction: discord.Interaction,
-        member: discord.Member,
-        reason: str,
+        user: discord.Member,
+        reason: str | None = None,
     ) -> None:
+        if not interaction.guild or interaction.channel is None:
+            await interaction.response.send_message(
+                embed=error_embed("Error", "Use this command in a server."), ephemeral=True
+            )
+            return
+
+        reason_s = _norm_reason(reason)
         await interaction.response.defer(ephemeral=True)
-        wid = await db.add_warn(member.id, interaction.user.id, reason)
-        total = await db.count_warns(member.id)
-        emb = warning_embed(
-            "Warning",
-            f"**Reason:** {reason}\n**Your warns:** {total}/{WARN_THRESHOLD}\n"
-            "Reaching 3 warns may result in a ban.",
-        )
+
+        wid = await db.add_warn(user.id, interaction.user.id, reason_s)
+        total = await db.count_warns(user.id)
+        shop_name = interaction.guild.name
+
+        dm_emb = _warn_notice_embed(shop_name=shop_name, reason=reason_s, total=total)
         try:
-            await member.send(embed=emb)
+            await user.send(embed=dm_emb)
         except discord.Forbidden:
             pass
-        log_ch = interaction.guild.get_channel(config.WARN_LOG_CHANNEL_ID)
-        if isinstance(log_ch, discord.TextChannel):
+
+        # Public channel confirmation (plain text, like reference)
+        public = f"⚠️ {user.mention} now has {total} warning(s).\n\n**reason**: {reason_s}"
+        public_ok = True
+        try:
+            await interaction.channel.send(
+                content=public,
+                allowed_mentions=discord.AllowedMentions(users=[user]),
+            )
+        except discord.Forbidden:
+            public_ok = False
+
+        log_ch = await get_text_channel(interaction.guild, gk.WARN_LOG_CHANNEL)
+        if log_ch:
             await log_ch.send(
                 embed=info_embed(
                     "Warn issued",
-                    f"{member.mention} — `{reason}` (ID `{wid}`) by {interaction.user.mention}",
+                    f"{user.mention} — `{reason_s}` (ID `{wid}`) by {interaction.user.mention}",
                 )
             )
+
+        staff_note = f"Warn ID `{wid}`. Total: {total}."
+        if not public_ok:
+            staff_note = (
+                "Could not post the public confirmation here (missing **Send Messages**). "
+                f"Warn was still logged.\n{staff_note}"
+            )
         await interaction.followup.send(
-            embed=success_embed("Warn logged", f"Warn ID `{wid}`. Total: {total}."),
+            embed=success_embed("Warn logged", staff_note),
             ephemeral=True,
         )
         if total >= WARN_THRESHOLD:
             try:
-                await member.ban(reason="3 warns reached", delete_message_days=0)
+                await user.ban(reason="3 warns reached", delete_message_days=0)
             except discord.Forbidden:
                 await interaction.followup.send(
                     embed=error_embed("Ban failed", "Could not ban user."), ephemeral=True
                 )
                 return
-            if isinstance(log_ch, discord.TextChannel):
-                await log_ch.send(embed=warning_embed("Auto-ban", f"{member} banned — warn threshold."))
+            if log_ch:
+                await log_ch.send(embed=warning_embed("Auto-ban", f"{user} banned — warn threshold."))
 
     @app_commands.command(name="warns", description="List warns for a member (staff)")
     @app_commands.describe(member="Member")

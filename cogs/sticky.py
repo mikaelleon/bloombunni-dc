@@ -12,11 +12,11 @@ from discord.ext import commands
 
 import database as db
 from utils.checks import is_staff
-from utils.embeds import PRIMARY, error_embed, info_embed, success_embed
+from utils.embeds import DEFAULT_EMBED_COLOR, PRIMARY, error_embed, info_embed, success_embed
 
 log = logging.getLogger("bot")
 
-DEFAULT_STICKY_COLOR = 0x669B9A
+DEFAULT_STICKY_COLOR = DEFAULT_EMBED_COLOR
 
 
 def _parse_hex_color(text: str | None) -> int:
@@ -151,7 +151,7 @@ class StickyCog(commands.Cog, name="StickyCog"):
         channel="Target channel",
         title="Embed title",
         description="Embed description",
-        color="Hex color e.g. #669b9a",
+        color="Hex color e.g. #242429",
         image_url="Main image URL",
         footer="Footer text",
         thumbnail_url="Thumbnail image URL",
@@ -172,12 +172,12 @@ class StickyCog(commands.Cog, name="StickyCog"):
             if color:
                 _parse_hex_color(color)
             else:
-                color = "#669b9a"
+                color = "#242429"
         except ValueError:
             await interaction.response.send_message(
                 embed=error_embed(
                     "Invalid color",
-                    "Invalid hex color. Use format: `#RRGGBB` (e.g. `#669b9a`).",
+                    "Invalid hex color. Use format: `#RRGGBB` (e.g. `#242429`).",
                 ),
                 ephemeral=True,
             )
@@ -197,7 +197,7 @@ class StickyCog(commands.Cog, name="StickyCog"):
             channel.id,
             title,
             description,
-            color or "#669b9a",
+            color or "#242429",
             image_url,
             footer,
             thumbnail_url,
