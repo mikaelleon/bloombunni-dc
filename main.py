@@ -51,8 +51,22 @@ class MikaBot(commands.Bot):
                 log.exception("Failed to load %s", e)
                 raise
 
-        # Global sync — guild-specific command sync was tied to env GUILD_ID; owners configure in-server only.
         await self.tree.sync()
+
+        # Guild-scoped sync updates slash commands in that server immediately (global sync can lag hours).
+        if config.SYNC_GUILD_ID:
+            guild_obj = discord.Object(id=config.SYNC_GUILD_ID)
+            try:
+                self.tree.copy_global_to(guild=guild_obj)
+                await self.tree.sync(guild=guild_obj)
+                log.info(
+                    "Slash commands synced to guild %s — use this server for up-to-date commands.",
+                    config.SYNC_GUILD_ID,
+                )
+            except discord.HTTPException:
+                log.exception(
+                    "Guild slash sync failed (is the bot in that server and is SYNC_GUILD_ID correct?)"
+                )
 
         self.add_view(TicketOpenView())
         self.add_view(CloseTicketView())
@@ -90,17 +104,22 @@ async def on_app_error(interaction: discord.Interaction, error: app_commands.App
     if isinstance(error, CommandSignatureMismatch):
         log.warning("Command signature mismatch (Discord cache vs bot): %s", error)
         msg = (
-            "Slash commands are updating. **Restart the bot** and wait about a minute, "
-            "then try again (or press `/` and pick the command fresh so Discord reloads it)."
+            "Discord still has an **older** version of this slash command than your bot code "
+            "(often after adding options like `channel`).\n\n"
+            "**Fix:** Set **`SYNC_GUILD_ID`** in `.env` to this server’s ID (Developer Mode → "
+            "right‑click server → Copy Server ID), **restart the bot**, then run the command again. "
+            "That pushes commands to this guild **immediately**.\n\n"
+            "Otherwise wait up to ~1 hour for global command updates, or re-invite the bot after "
+            "changing commands."
         )
         try:
             if interaction.response.is_done():
                 await interaction.followup.send(
-                    embed=error_embed("Commands updating", msg), ephemeral=True
+                    embed=error_embed("Slash command out of date", msg), ephemeral=True
                 )
             else:
                 await interaction.response.send_message(
-                    embed=error_embed("Commands updating", msg), ephemeral=True
+                    embed=error_embed("Slash command out of date", msg), ephemeral=True
                 )
         except discord.HTTPException:
             pass

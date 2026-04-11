@@ -23,6 +23,21 @@ def _strip(name: str) -> str | None:
     return str(v).strip()
 
 
+def _optional_int(name: str) -> int | None:
+    v = _strip(name)
+    if not v:
+        return None
+    try:
+        return int(v)
+    except ValueError:
+        print(
+            f"CONFIG WARNING: {name} must be a whole number; ignoring.",
+            file=sys.stderr,
+            flush=True,
+        )
+        return None
+
+
 def _load() -> None:
     global BOT_TOKEN
 
@@ -39,6 +54,10 @@ def _load() -> None:
 
 _load()
 
+# Optional: sync slash commands to this guild immediately (avoids long global propagation
+# and CommandSignatureMismatch while testing). Right‑click server → Copy Server ID.
+SYNC_GUILD_ID: int | None = _optional_int("SYNC_GUILD_ID")
+
 DATABASE_PATH: Path = _BOT_DIR / "bot.db"
 TOS_FILE: Path = _BOT_DIR / "tos.txt"
 TEMPLATES_FILE: Path = _BOT_DIR / "templates.json"
@@ -47,3 +66,4 @@ TEMPLATES_FILE: Path = _BOT_DIR / "templates.json"
 def validate_config() -> None:
     """Idempotent check after load (e.g. in setup_hook)."""
     _ = BOT_TOKEN
+    _ = SYNC_GUILD_ID

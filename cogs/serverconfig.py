@@ -287,7 +287,7 @@ class ServerConfigCog(commands.Cog, name="ServerConfigCog"):
         self,
         interaction: discord.Interaction,
         slot: str,
-        category: object,
+        category: str,
     ) -> None:
         if not interaction.guild:
             return

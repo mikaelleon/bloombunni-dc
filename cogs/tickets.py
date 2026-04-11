@@ -67,7 +67,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         channel="Where to post the panel — mention, ID, or pick a channel",
     )
     @is_staff()
-    async def setup_tickets(self, interaction: discord.Interaction, channel: object) -> None:
+    async def setup_tickets(self, interaction: discord.Interaction, channel: str) -> None:
         ch = resolve_text_channel(interaction.guild, channel)
         if not ch:
             await interaction.response.send_message(
@@ -100,7 +100,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         channel="Where to post the panel — mention, ID, or pick a channel",
     )
     @is_staff()
-    async def setup_tos(self, interaction: discord.Interaction, channel: object) -> None:
+    async def setup_tos(self, interaction: discord.Interaction, channel: str) -> None:
         ch = resolve_text_channel(interaction.guild, channel)
         if not ch:
             await interaction.response.send_message(
@@ -124,7 +124,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         channel="Where to post the panel — mention, ID, or pick a channel",
     )
     @is_staff()
-    async def setup_payment(self, interaction: discord.Interaction, channel: object) -> None:
+    async def setup_payment(self, interaction: discord.Interaction, channel: str) -> None:
         ch = resolve_text_channel(interaction.guild, channel)
         if not ch:
             await interaction.response.send_message(
