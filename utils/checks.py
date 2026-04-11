@@ -1,0 +1,56 @@
+"""Reusable app_commands checks."""
+
+from __future__ import annotations
+
+from discord import app_commands
+
+import config
+import database as db
+
+
+def is_staff():
+    async def predicate(interaction) -> bool:
+        if not interaction.guild:
+            raise app_commands.CheckFailure("This command can only be used in a server.")
+        role = interaction.guild.get_role(config.STAFF_ROLE_ID)
+        if role is None or role not in interaction.user.roles:
+            raise app_commands.CheckFailure("You need the staff role to use this command.")
+        return True
+
+    return app_commands.check(predicate)
+
+
+def has_tos():
+    async def predicate(interaction) -> bool:
+        if not interaction.guild:
+            raise app_commands.CheckFailure("This command can only be used in a server.")
+        role = interaction.guild.get_role(config.TOS_AGREED_ROLE_ID)
+        if role is None or role not in interaction.user.roles:
+            raise app_commands.CheckFailure(
+                "You must agree to the Terms of Service first. See the #tos channel."
+            )
+        return True
+
+    return app_commands.check(predicate)
+
+
+def shop_is_open():
+    async def predicate(interaction) -> bool:
+        if not await db.shop_is_open_db():
+            raise app_commands.CheckFailure("The shop is currently closed. Please check back later.")
+        return True
+
+    return app_commands.check(predicate)
+
+
+async def check_failure_response(interaction, error: Exception) -> None:
+    """Send ephemeral error embed for CheckFailure."""
+    from utils.embeds import error_embed
+
+    if isinstance(error, app_commands.CheckFailure):
+        msg = str(error) or "You cannot use this command right now."
+        emb = error_embed("Permission denied", msg)
+        if interaction.response.is_done():
+            await interaction.followup.send(embed=emb, ephemeral=True)
+        else:
+            await interaction.response.send_message(embed=emb, ephemeral=True)
