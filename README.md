@@ -70,6 +70,7 @@ bot/
 | Shop | `/shop open`, `/shop close`, `/shopstatus` |
 | Queue | `/queue` (staff), `/settemplate`, `/viewtemplate`, `/listtemplates`, `/resettemplates`, `/loyalty`, `/loyaltytop` |
 | Tickets | Panel button, `/close` |
+| Sticky | `/sticky`, `/stickyupdate`, `/unsticky`, `/stickies`, `/stickypreview` |
 | Other | `/drop`, `/drophistory`, `/vouch`, `/vouches`, `/warn`, … |
 
 ## Hosting (e.g. Render)

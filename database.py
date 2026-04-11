@@ -138,6 +138,22 @@ async def init_db() -> None:
             )
             """
         )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sticky_messages (
+                channel_id INTEGER PRIMARY KEY,
+                title TEXT,
+                description TEXT,
+                color TEXT DEFAULT '#669b9a',
+                image_url TEXT,
+                footer TEXT,
+                thumbnail_url TEXT,
+                last_message_id INTEGER,
+                created_by INTEGER,
+                updated_at TEXT
+            )
+            """
+        )
         await db.commit()
 
 
@@ -605,6 +621,132 @@ async def list_drops_for_user(client_id: int) -> list[dict[str, Any]]:
         )
         rows = await cur.fetchall()
         return [dict(r) for r in rows]
+
+
+# --- Sticky messages ---
+
+
+async def upsert_sticky_full(
+    channel_id: int,
+    title: str,
+    description: str,
+    color: str,
+    image_url: str | None,
+    footer: str | None,
+    thumbnail_url: str | None,
+    last_message_id: int | None,
+    created_by: int,
+) -> None:
+    now = _utc_now()
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """
+            INSERT INTO sticky_messages (
+                channel_id, title, description, color, image_url, footer,
+                thumbnail_url, last_message_id, created_by, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(channel_id) DO UPDATE SET
+                title = excluded.title,
+                description = excluded.description,
+                color = excluded.color,
+                image_url = excluded.image_url,
+                footer = excluded.footer,
+                thumbnail_url = excluded.thumbnail_url,
+                last_message_id = excluded.last_message_id,
+                created_by = excluded.created_by,
+                updated_at = excluded.updated_at
+            """,
+            (
+                channel_id,
+                title,
+                description,
+                color,
+                image_url,
+                footer,
+                thumbnail_url,
+                last_message_id,
+                created_by,
+                now,
+            ),
+        )
+        await db.commit()
+
+
+async def patch_sticky(channel_id: int, updates: dict[str, Any]) -> bool:
+    """Merge `updates` into existing row. Returns False if no row exists."""
+    row = await get_sticky(channel_id)
+    if not row:
+        return False
+    now = _utc_now()
+    fields: dict[str, Any] = dict(row)
+    for k, v in updates.items():
+        fields[k] = v
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """
+            UPDATE sticky_messages SET
+                title = ?, description = ?, color = ?, image_url = ?,
+                footer = ?, thumbnail_url = ?, updated_at = ?
+            WHERE channel_id = ?
+            """,
+            (
+                fields.get("title"),
+                fields.get("description"),
+                fields.get("color") or "#669b9a",
+                fields.get("image_url"),
+                fields.get("footer"),
+                fields.get("thumbnail_url"),
+                now,
+                channel_id,
+            ),
+        )
+        await db.commit()
+    return True
+
+
+async def set_sticky_last_message_id(channel_id: int, message_id: int) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            "UPDATE sticky_messages SET last_message_id = ? WHERE channel_id = ?",
+            (message_id, channel_id),
+        )
+        await db.commit()
+
+
+async def get_sticky(channel_id: int) -> dict[str, Any] | None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM sticky_messages WHERE channel_id = ?", (channel_id,)
+        )
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+
+async def delete_sticky(channel_id: int) -> bool:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cur = await db.execute(
+            "DELETE FROM sticky_messages WHERE channel_id = ?", (channel_id,)
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def list_all_stickies() -> list[dict[str, Any]]:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM sticky_messages ORDER BY channel_id"
+        )
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def all_sticky_channel_ids() -> list[int]:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cur = await db.execute("SELECT channel_id FROM sticky_messages")
+        rows = await cur.fetchall()
+        return [int(r[0]) for r in rows]
 
 
 # --- Default templates JSON (sync) ---

@@ -38,6 +38,7 @@ class MikaBot(commands.Bot):
             "cogs.shop",
             "cogs.vouch",
             "cogs.warn",
+            "cogs.sticky",
             "cogs.drop",
             "cogs.payment",
         ]
@@ -69,6 +70,9 @@ async def on_ready() -> None:
     shop = bot.get_cog("ShopCog")
     if shop and hasattr(shop, "refresh_status_message"):
         await shop.refresh_status_message()
+    sticky = bot.get_cog("StickyCog")
+    if sticky and hasattr(sticky, "refresh_sticky_cache"):
+        await sticky.refresh_sticky_cache()
 
 
 @bot.tree.error
