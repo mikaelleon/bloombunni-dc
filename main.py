@@ -50,12 +50,8 @@ class MikaBot(commands.Bot):
                 log.exception("Failed to load %s", e)
                 raise
 
-        if config.GUILD_ID:
-            guild = discord.Object(id=config.GUILD_ID)
-            self.tree.copy_global_to(guild=guild)
-            await self.tree.sync(guild=guild)
-        else:
-            await self.tree.sync()
+        # Global sync — guild-specific command sync was tied to env GUILD_ID; owners configure in-server only.
+        await self.tree.sync()
 
         self.add_view(TicketOpenView())
         self.add_view(CloseTicketView())

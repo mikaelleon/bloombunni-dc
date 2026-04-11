@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import config
 import discord
 from discord.ext import commands
 
 import database as db
 import guild_keys as gk
-from guild_config import get_text_channel
+from guild_config import get_text_channel, is_payment_config_complete
 from utils.embeds import PRIMARY, error_embed, success_embed
+
 
 class PaymentView(discord.ui.View):
     def __init__(self) -> None:
@@ -17,29 +17,72 @@ class PaymentView(discord.ui.View):
 
     @discord.ui.button(label="GCash", style=discord.ButtonStyle.primary, custom_id="pay_gcash")
     async def gcash(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        emb = discord.Embed(
-            title="GCash",
-            description=config.GCASH_DETAILS,
-            color=PRIMARY,
-        )
-        emb.set_image(url=config.GCASH_QR_URL)
+        if not interaction.guild:
+            await interaction.response.send_message(
+                embed=error_embed("Error", "Use this in a server."), ephemeral=True
+            )
+            return
+        details = await db.get_guild_string_setting(interaction.guild.id, gk.PAYMENT_GCASH_DETAILS)
+        qr = await db.get_guild_string_setting(interaction.guild.id, gk.PAYMENT_GCASH_QR_URL)
+        if not details or not qr:
+            await interaction.response.send_message(
+                embed=error_embed(
+                    "Not configured",
+                    "Ask a manager to set **GCash** text and QR with `/serverconfig payment`.",
+                ),
+                ephemeral=True,
+            )
+            return
+        emb = discord.Embed(title="GCash", description=details, color=PRIMARY)
+        emb.set_image(url=qr)
         await interaction.response.send_message(embed=emb, ephemeral=True)
 
     @discord.ui.button(label="PayPal", style=discord.ButtonStyle.secondary, custom_id="pay_paypal")
     async def paypal(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not interaction.guild:
+            await interaction.response.send_message(
+                embed=error_embed("Error", "Use this in a server."), ephemeral=True
+            )
+            return
+        link = await db.get_guild_string_setting(interaction.guild.id, gk.PAYMENT_PAYPAL_LINK)
+        qr = await db.get_guild_string_setting(interaction.guild.id, gk.PAYMENT_PAYPAL_QR_URL)
+        if not link or not qr:
+            await interaction.response.send_message(
+                embed=error_embed(
+                    "Not configured",
+                    "Ask a manager to set **PayPal** link and QR with `/serverconfig payment`.",
+                ),
+                ephemeral=True,
+            )
+            return
         emb = discord.Embed(
             title="PayPal",
-            description=f"[PayPal link]({config.PAYPAL_LINK})",
+            description=f"[PayPal link]({link})",
             color=PRIMARY,
         )
-        emb.set_image(url=config.PAYPAL_QR_URL)
+        emb.set_image(url=qr)
         await interaction.response.send_message(embed=emb, ephemeral=True)
 
     @discord.ui.button(label="Ko-fi", style=discord.ButtonStyle.success, custom_id="pay_kofi")
     async def kofi(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not interaction.guild:
+            await interaction.response.send_message(
+                embed=error_embed("Error", "Use this in a server."), ephemeral=True
+            )
+            return
+        link = await db.get_guild_string_setting(interaction.guild.id, gk.PAYMENT_KOFI_LINK)
+        if not link:
+            await interaction.response.send_message(
+                embed=error_embed(
+                    "Not configured",
+                    "Ask a manager to set **Ko-fi** link with `/serverconfig payment kofi_link`.",
+                ),
+                ephemeral=True,
+            )
+            return
         emb = discord.Embed(
             title="Ko-fi",
-            description=f"[Ko-fi]({config.KOFI_LINK})",
+            description=f"[Ko-fi]({link})",
             color=PRIMARY,
         )
         await interaction.response.send_message(embed=emb, ephemeral=True)
@@ -54,7 +97,18 @@ class PaymentCog(commands.Cog, name="PaymentCog"):
         ch = await get_text_channel(interaction.guild, gk.PAYMENT_CHANNEL)
         if not ch:
             await interaction.response.send_message(
-                embed=error_embed("Config", "Payment channel invalid."), ephemeral=True
+                embed=error_embed("Config", "Payment channel invalid. Set it in `/serverconfig channel`."),
+                ephemeral=True,
+            )
+            return
+        if not await is_payment_config_complete(interaction.guild.id):
+            await interaction.response.send_message(
+                embed=error_embed(
+                    "Payment not configured",
+                    "Run all of `/serverconfig payment gcash_details`, `paypal_link`, `kofi_link`, "
+                    "`gcash_qr`, `paypal_qr` (see `/serverconfig show`).",
+                ),
+                ephemeral=True,
             )
             return
         emb = discord.Embed(

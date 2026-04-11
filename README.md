@@ -22,7 +22,7 @@ A Discord bot for running a **small art commission shop** in your server: agree 
 
 ## Overview
 
-**Mika Shop** helps you run commissions in Discord: customers use **buttons** and **slash commands** (`/` commands) to open tickets, staff register orders with **`/queue`**, and the bot keeps **HTML transcripts** when a ticket closes. Money details (GCash, PayPal, Ko-fi) come from your **environment file**; **which channels and roles** the bot uses are chosen **inside Discord** with **`/serverconfig`**—you do not paste long ID numbers into a file for that.
+**Mika Shop** helps you run commissions in Discord: customers use **buttons** and **slash commands** (`/` commands) to open tickets, staff register orders with **`/queue`**, and the bot keeps **HTML transcripts** when a ticket closes. **Only the bot token** is read from your **`.env`** file. **Channels, roles, and payment text (GCash, PayPal, Ko-fi, QR image links)** are set **per server** with **`/serverconfig`** and stored in the database—no payment info in `.env`.
 
 ---
 
@@ -32,7 +32,7 @@ A Discord bot for running a **small art commission shop** in your server: agree 
 - **Shop hours:** Open or close commissions; optional visibility rules on your “Start Here” area.
 - **Tickets:** Private ticket channels under categories you pick; open/close with transcripts.
 - **Orders:** Register orders from a ticket, show them on a **queue channel**, move ticket channels through **Noted → Processing → Done** stages, and use **templates** for wording.
-- **Payments:** A panel with buttons for GCash, PayPal, and Ko-fi (details from your config).
+- **Payments:** A panel with buttons for GCash, PayPal, and Ko-fi (each server sets copy and URLs with **`/serverconfig payment`**).
 - **Loyalty:** Track completed orders per client and show milestones.
 - **Vouches:** Dedicated vouch channel behavior and manual vouch logging.
 - **Delivery:** Staff can send a “delivery” DM with a link; history can be listed.
@@ -57,8 +57,8 @@ A Discord bot for running a **small art commission shop** in your server: agree 
 
 ## How the pieces fit together
 
-1. **You** turn the bot on and fill in **secrets and payment text** (`.env`).
-2. **You or a manager** runs **`/serverconfig`** so the bot knows **which channel is the queue, which role is staff**, and so on.
+1. **You** turn the bot on and put **only `BOT_TOKEN`** in `.env` (or your host’s environment).
+2. **You or a manager** runs **`/serverconfig`** so the bot knows **channels, roles, and payment text** for that server.
 3. **Staff** runs **`/setup`** to post panels (tickets, TOS, payment) into the right channels.
 4. **Members** agree to TOS, then **open a ticket** when the shop is open.
 5. **Staff** uses **`/queue`** inside a ticket to create an order and post it to the **queue** list.
@@ -86,17 +86,14 @@ A Discord bot for running a **small art commission shop** in your server: agree 
    ```
 
 5. Copy **`.env.example`** to **`.env`** and open `.env` in a text editor.
-6. Fill in at least:
-   - **`BOT_TOKEN`** — from the [Discord Developer Portal](https://discord.com/developers/applications) (your bot’s token).
-   - **Payment lines** — `GCASH_DETAILS`, `PAYPAL_LINK`, `KOFI_LINK`, and the two QR image URLs, as placeholders in the example show.
-7. Optionally set **`GUILD_ID`** to your server’s ID if you want slash commands to update **quickly** on that server only. If you skip it, commands still work but may take longer to appear everywhere.
-8. Start the bot:
+6. Set **`BOT_TOKEN`** — from the [Discord Developer Portal](https://discord.com/developers/applications) (your bot’s token). **Nothing else is required in `.env`** for this bot.
+7. Start the bot:
 
    ```bash
    python main.py
    ```
 
-9. **First run** creates a local database file **`bot.db`**. Do not share it if it contains private data.
+8. **First run** creates a local database file **`bot.db`**. Do not share it if it contains private data.
 
 ### B. Wire the server (inside Discord)
 
@@ -104,8 +101,9 @@ Do this **after** the bot is online and invited with enough permissions (see [Di
 
 1. Run **`/serverconfig show`** to see what is missing (managers only—see [commands](#commands-by-who-can-use-them)).
 2. Use **`/serverconfig channel`**, **`/serverconfig category`**, and **`/serverconfig role`** until every slot you need is filled (queue channel, ticket categories, staff role, TOS role, etc.).
-3. Put your TOS text in **`tos.txt`** (in the `bot` folder) if you use the TOS panel.
-4. Staff runs **`/setup tickets`**, **`/setup tos`**, and **`/setup payment`** to post the panels into the channels you configured.
+3. Set **payment** text and URLs with **`/serverconfig payment`** (`gcash_details`, `paypal_link`, `kofi_link`, `gcash_qr`, `paypal_qr`) so the payment buttons work.
+4. Put your TOS text in **`tos.txt`** (in the `bot` folder) if you use the TOS panel.
+5. Staff runs **`/setup tickets`**, **`/setup tos`**, and **`/setup payment`** to post the panels into the channels you configured.
 
 **Order matters:** configure **`/serverconfig`** before expecting tickets or queue to work.
 
@@ -135,7 +133,8 @@ If something fails with “missing permissions,” give the bot’s role a highe
 - **Channels:** Queue, shop status, transcripts, vouches, optional order notifications, Start Here, TOS, payment, warn log.
 - **Categories:** New tickets, noted, processing, done (order pipeline).
 - **Roles:** Staff, TOS agreed, commissions open, please vouch.
-- **`/serverconfig show`:** See what is set.
+- **Payment:** GCash text, PayPal/Ko-fi links, GCash/PayPal QR image URLs (`/serverconfig payment …`).
+- **`/serverconfig show`:** See what is set (including payment previews).
 
 ### Shop
 
@@ -156,7 +155,8 @@ If something fails with “missing permissions,” give the bot’s role a highe
 
 ### Payments
 
-- Panel with **GCash / PayPal / Ko-fi** buttons; each shows an ephemeral embed with your configured text/links.
+- Managers set **GCash body text**, **PayPal / Ko-fi links**, and **QR image URLs** with **`/serverconfig payment`** (see **`/serverconfig show`**).
+- Panel with **GCash / PayPal / Ko-fi** buttons; each shows an ephemeral embed using that server’s saved values.
 
 ### Vouches
 
@@ -228,13 +228,14 @@ You can use **`/serverconfig`** if you have **Administrator**, **Manage Server**
 | **`/serverconfig channel`** | Pick which text channel is used for each feature (queue, vouches, etc.). |
 | **`/serverconfig category`** | Pick categories for tickets and order stages. |
 | **`/serverconfig role`** | Pick roles for staff, TOS, shop open, please vouch. |
-| **`/serverconfig show`** | Lists current choices. |
+| **`/serverconfig show`** | Lists channels, roles, and payment fields. |
+| **`/serverconfig payment gcash_details`** (and **`paypal_link`**, **`kofi_link`**, **`gcash_qr`**, **`paypal_qr`**) | Set payment copy and URLs for **this server**. |
 
 ---
 
 ## Hosting the bot online
 
-For **Render**, Railway, or similar: run **`python main.py`** as the start command from the **`bot`** folder, set the same **environment variables** as in `.env`. The keep-alive server listens on the **`PORT`** environment variable (Render sets this automatically; locally it defaults to 8080). Do **not** hardcode a different port than `PORT` or public URLs may return **502**. Check your provider’s docs for “background worker” vs “web service.”
+For **Render**, Railway, or similar: run **`python main.py`** as the start command from the **`bot`** folder. Set **`BOT_TOKEN`** (and **`PORT`** is provided automatically on Render). The keep-alive server listens on **`PORT`** (defaults to **8080** locally). Do **not** point the app at a different port than **`PORT`** or public URLs may return **502**. Check your provider’s docs for “background worker” vs “web service.”
 
 ---
 
@@ -243,7 +244,7 @@ For **Render**, Railway, or similar: run **`python main.py`** as the start comma
 | Item | Role |
 |------|------|
 | **`main.py`** | Starts the bot. |
-| **`.env`** | Secrets and payment text (never commit this). |
+| **`.env`** | **Bot token only** in the default setup (never commit this). |
 | **`bot.db`** | Local database (orders, tickets, warns, guild settings, etc.). |
 | **`tos.txt`** | Text for the TOS panel. |
 | **`templates.json`** | Default wording for queue/ticket messages (staff can override in the database). |

@@ -50,3 +50,26 @@ ROLE_SLOT_CHOICES: list[tuple[str, str]] = [
     ("Commissions open", COMMISSIONS_OPEN_ROLE),
     ("Please vouch", PLEASE_VOUCH_ROLE),
 ]
+
+# Payment panel (string settings via /serverconfig payment …)
+PAYMENT_GCASH_DETAILS = "payment_gcash_details"
+PAYMENT_PAYPAL_LINK = "payment_paypal_link"
+PAYMENT_KOFI_LINK = "payment_kofi_link"
+PAYMENT_GCASH_QR_URL = "payment_gcash_qr_url"
+PAYMENT_PAYPAL_QR_URL = "payment_paypal_qr_url"
+
+PAYMENT_FIELD_LABELS: dict[str, str] = {
+    PAYMENT_GCASH_DETAILS: "GCash instructions (body text)",
+    PAYMENT_PAYPAL_LINK: "PayPal URL",
+    PAYMENT_KOFI_LINK: "Ko-fi URL",
+    PAYMENT_GCASH_QR_URL: "GCash QR image URL",
+    PAYMENT_PAYPAL_QR_URL: "PayPal QR image URL",
+}
+
+PAYMENT_ALL_KEYS: tuple[str, ...] = (
+    PAYMENT_GCASH_DETAILS,
+    PAYMENT_PAYPAL_LINK,
+    PAYMENT_KOFI_LINK,
+    PAYMENT_GCASH_QR_URL,
+    PAYMENT_PAYPAL_QR_URL,
+)

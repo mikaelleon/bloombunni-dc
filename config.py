@@ -1,6 +1,7 @@
-"""Load and validate environment configuration (secrets + payment copy only).
+"""Load bot token from the environment.
 
-Channel and role IDs are configured per server with `/serverconfig`.
+Everything else (channels, roles, payment text) is configured per server in Discord
+with `/serverconfig` and stored in SQLite.
 """
 
 from __future__ import annotations
@@ -23,49 +24,17 @@ def _strip(name: str) -> str | None:
 
 
 def _load() -> None:
-    missing: list[str] = []
-    bad_int: list[str] = []
+    global BOT_TOKEN
 
-    def req_str(key: str) -> str:
-        v = _strip(key)
-        if v is None:
-            missing.append(key)
-            return ""
-        return v
-
-    def opt_int(key: str) -> int:
-        v = _strip(key)
-        if v is None:
-            return 0
-        try:
-            return int(v)
-        except ValueError:
-            bad_int.append(key)
-            return 0
-
-    global BOT_TOKEN, GUILD_ID, GCASH_DETAILS, PAYPAL_LINK, KOFI_LINK, GCASH_QR_URL, PAYPAL_QR_URL
-
-    BOT_TOKEN = req_str("BOT_TOKEN")
-    GUILD_ID = opt_int("GUILD_ID")
-    GCASH_DETAILS = req_str("GCASH_DETAILS")
-    PAYPAL_LINK = req_str("PAYPAL_LINK")
-    KOFI_LINK = req_str("KOFI_LINK")
-    GCASH_QR_URL = req_str("GCASH_QR_URL")
-    PAYPAL_QR_URL = req_str("PAYPAL_QR_URL")
-
-    if missing or bad_int:
-        lines = [
-            "CONFIG ERROR: Set required environment variables (Render dashboard or .env).",
-            "",
-        ]
-        if missing:
-            lines.append("Missing or empty:")
-            lines.extend(f"  - {m}" for m in missing)
-        if bad_int:
-            lines.append("Not valid integers:")
-            lines.extend(f"  - {b}" for b in bad_int)
-        print("\n".join(lines), file=sys.stderr, flush=True)
+    v = _strip("BOT_TOKEN")
+    if not v:
+        print(
+            "CONFIG ERROR: BOT_TOKEN is missing or empty. Set it in .env or your host's environment.",
+            file=sys.stderr,
+            flush=True,
+        )
         raise SystemExit(1)
+    BOT_TOKEN = v
 
 
 _load()

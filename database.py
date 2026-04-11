@@ -164,6 +164,16 @@ async def init_db() -> None:
             )
             """
         )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS guild_string_settings (
+                guild_id INTEGER NOT NULL,
+                setting_key TEXT NOT NULL,
+                value TEXT NOT NULL,
+                PRIMARY KEY (guild_id, setting_key)
+            )
+            """
+        )
         await db.commit()
 
 
@@ -204,6 +214,46 @@ async def list_guild_settings(guild_id: int) -> dict[str, int]:
         )
         rows = await cur.fetchall()
         return {str(r["setting_key"]): int(r["value"]) for r in rows}
+
+
+# --- Guild string settings (payment copy, etc.) ---
+
+
+async def get_guild_string_setting(guild_id: int, key: str) -> str | None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cur = await db.execute(
+            "SELECT value FROM guild_string_settings WHERE guild_id = ? AND setting_key = ?",
+            (guild_id, key),
+        )
+        row = await cur.fetchone()
+        if not row:
+            return None
+        v = row[0]
+        return str(v) if v is not None and str(v).strip() else None
+
+
+async def set_guild_string_setting(guild_id: int, key: str, value: str) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            "DELETE FROM guild_string_settings WHERE guild_id = ? AND setting_key = ?",
+            (guild_id, key),
+        )
+        await db.execute(
+            "INSERT INTO guild_string_settings (guild_id, setting_key, value) VALUES (?, ?, ?)",
+            (guild_id, key, value),
+        )
+        await db.commit()
+
+
+async def list_guild_string_settings(guild_id: int) -> dict[str, str]:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT setting_key, value FROM guild_string_settings WHERE guild_id = ?",
+            (guild_id,),
+        )
+        rows = await cur.fetchall()
+        return {str(r["setting_key"]): str(r["value"]) for r in rows}
 
 
 # --- Orders ---
