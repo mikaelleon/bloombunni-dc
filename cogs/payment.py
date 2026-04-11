@@ -7,7 +7,7 @@ from discord.ext import commands
 
 import database as db
 import guild_keys as gk
-from guild_config import get_text_channel, is_payment_config_complete
+from guild_config import is_payment_config_complete
 from utils.embeds import PRIMARY, error_embed, success_embed
 
 
@@ -92,15 +92,10 @@ class PaymentCog(commands.Cog, name="PaymentCog"):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
-    async def run_setup_payment(self, interaction: discord.Interaction) -> None:
-        """Invoked from `/setup payment`."""
-        ch = await get_text_channel(interaction.guild, gk.PAYMENT_CHANNEL)
-        if not ch:
-            await interaction.response.send_message(
-                embed=error_embed("Config", "Payment channel invalid. Set it in `/serverconfig channel`."),
-                ephemeral=True,
-            )
-            return
+    async def run_setup_payment(
+        self, interaction: discord.Interaction, ch: discord.TextChannel
+    ) -> None:
+        """Invoked from `/setup payment` with a resolved payment channel."""
         if not await is_payment_config_complete(interaction.guild.id):
             await interaction.response.send_message(
                 embed=error_embed(

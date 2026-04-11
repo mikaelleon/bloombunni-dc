@@ -6,6 +6,7 @@ import logging
 
 import discord
 from discord import app_commands
+from discord.app_commands.errors import CommandSignatureMismatch
 from discord.ext import commands
 
 import config
@@ -85,6 +86,24 @@ async def on_app_error(interaction: discord.Interaction, error: app_commands.App
         orig = error.original
     if isinstance(orig, app_commands.CheckFailure):
         await check_failure_response(interaction, orig)
+        return
+    if isinstance(error, CommandSignatureMismatch):
+        log.warning("Command signature mismatch (Discord cache vs bot): %s", error)
+        msg = (
+            "Slash commands are updating. **Restart the bot** and wait about a minute, "
+            "then try again (or press `/` and pick the command fresh so Discord reloads it)."
+        )
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send(
+                    embed=error_embed("Commands updating", msg), ephemeral=True
+                )
+            else:
+                await interaction.response.send_message(
+                    embed=error_embed("Commands updating", msg), ephemeral=True
+                )
+        except discord.HTTPException:
+            pass
         return
     log.exception("App command error: %s", error)
     try:

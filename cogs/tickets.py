@@ -13,8 +13,14 @@ from discord.ext import commands
 import database as db
 import guild_keys as gk
 from guild_config import get_category, get_role, get_text_channel
+from utils.channel_resolve import resolve_text_channel
 from utils.checks import is_staff
 from utils.embeds import PRIMARY, error_embed, info_embed, success_embed
+
+_SETUP_CH_ERR = (
+    "Could not find that **text channel**. Use a channel mention (`<#id>`) or paste the "
+    "**numeric channel ID** (Developer Mode → Copy Channel ID)."
+)
 
 
 class TicketOpenView(discord.ui.View):
@@ -53,15 +59,22 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
-    @setup_group.command(name="tickets", description="Post the ticket panel in Start Here")
+    @setup_group.command(
+        name="tickets",
+        description="Post the ticket panel in the channel you specify (mention or ID)",
+    )
+    @app_commands.describe(
+        channel="Where to post the panel — mention, ID, or pick a channel",
+    )
     @is_staff()
-    async def setup_tickets(self, interaction: discord.Interaction) -> None:
-        ch = await get_text_channel(interaction.guild, gk.START_HERE_CHANNEL)
+    async def setup_tickets(self, interaction: discord.Interaction, channel: object) -> None:
+        ch = resolve_text_channel(interaction.guild, channel)
         if not ch:
             await interaction.response.send_message(
-                embed=error_embed("Config", "Start Here channel invalid."), ephemeral=True
+                embed=error_embed("Invalid channel", _SETUP_CH_ERR), ephemeral=True
             )
             return
+        await db.set_guild_setting(interaction.guild.id, gk.START_HERE_CHANNEL, ch.id)
         tos_cid = await db.get_guild_setting(interaction.guild.id, gk.TOS_CHANNEL)
         tos_line = f"You need the TOS role — agree in <#{tos_cid}> first.\n" if tos_cid else "You need the TOS role first.\n"
         emb = discord.Embed(
@@ -79,27 +92,53 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         msg = await ch.send(embed=emb, view=TicketOpenView())
         await db.set_persist_panel("tickets", ch.id, msg.id)
 
-    @setup_group.command(name="tos", description="Post the TOS agreement panel")
+    @setup_group.command(
+        name="tos",
+        description="Post the TOS agreement panel in the channel you specify (mention or ID)",
+    )
+    @app_commands.describe(
+        channel="Where to post the panel — mention, ID, or pick a channel",
+    )
     @is_staff()
-    async def setup_tos(self, interaction: discord.Interaction) -> None:
+    async def setup_tos(self, interaction: discord.Interaction, channel: object) -> None:
+        ch = resolve_text_channel(interaction.guild, channel)
+        if not ch:
+            await interaction.response.send_message(
+                embed=error_embed("Invalid channel", _SETUP_CH_ERR), ephemeral=True
+            )
+            return
+        await db.set_guild_setting(interaction.guild.id, gk.TOS_CHANNEL, ch.id)
         shop = self.bot.get_cog("ShopCog")
         if not shop or not hasattr(shop, "run_setup_tos"):
             await interaction.response.send_message(
                 embed=error_embed("Error", "Shop cog unavailable."), ephemeral=True
             )
             return
-        await shop.run_setup_tos(interaction)
+        await shop.run_setup_tos(interaction, ch)
 
-    @setup_group.command(name="payment", description="Post the payment methods panel")
+    @setup_group.command(
+        name="payment",
+        description="Post the payment methods panel in the channel you specify (mention or ID)",
+    )
+    @app_commands.describe(
+        channel="Where to post the panel — mention, ID, or pick a channel",
+    )
     @is_staff()
-    async def setup_payment(self, interaction: discord.Interaction) -> None:
+    async def setup_payment(self, interaction: discord.Interaction, channel: object) -> None:
+        ch = resolve_text_channel(interaction.guild, channel)
+        if not ch:
+            await interaction.response.send_message(
+                embed=error_embed("Invalid channel", _SETUP_CH_ERR), ephemeral=True
+            )
+            return
+        await db.set_guild_setting(interaction.guild.id, gk.PAYMENT_CHANNEL, ch.id)
         pay = self.bot.get_cog("PaymentCog")
         if not pay or not hasattr(pay, "run_setup_payment"):
             await interaction.response.send_message(
                 embed=error_embed("Error", "Payment cog unavailable."), ephemeral=True
             )
             return
-        await pay.run_setup_payment(interaction)
+        await pay.run_setup_payment(interaction, ch)
 
     async def handle_open_ticket(self, interaction: discord.Interaction) -> None:
         if not interaction.guild or not isinstance(interaction.user, discord.Member):

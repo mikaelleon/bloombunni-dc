@@ -74,14 +74,10 @@ class ShopCog(commands.Cog, name="ShopCog"):
         except (discord.NotFound, discord.Forbidden):
             self._status_message = None
 
-    async def run_setup_tos(self, interaction: discord.Interaction) -> None:
-        """Called from `/setup tos`."""
-        ch = await get_text_channel(interaction.guild, gk.TOS_CHANNEL)
-        if not ch:
-            await interaction.response.send_message(
-                embed=error_embed("Config", "TOS channel invalid."), ephemeral=True
-            )
-            return
+    async def run_setup_tos(
+        self, interaction: discord.Interaction, ch: discord.TextChannel
+    ) -> None:
+        """Called from `/setup tos` with a resolved TOS text channel."""
         text = (
             config.TOS_FILE.read_text(encoding="utf-8")
             if config.TOS_FILE.exists()
