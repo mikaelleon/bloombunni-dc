@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -12,6 +14,8 @@ from guild_config import get_role, get_text_channel
 import guild_keys as gk
 from utils.checks import is_staff
 from utils.embeds import DANGER, SUCCESS, error_embed, info_embed, success_embed
+
+log = logging.getLogger("bot.shop")
 
 
 class TOSAgreeView(discord.ui.View):
@@ -132,51 +136,92 @@ class ShopCog(commands.Cog, name="ShopCog"):
     @shop.command(name="open", description="Open commissions (staff)")
     @is_staff()
     async def shop_open(self, interaction: discord.Interaction) -> None:
-        if not interaction.guild:
-            return
+        # Acknowledge within 3s — never return before responding (causes "application did not respond").
         await interaction.response.defer(ephemeral=True)
-        await db.set_shop_state(True, interaction.user.id)
-        st = await db.get_shop_state()
-        emb = self._embed(st)
-        await self._apply_status_embed(interaction, emb)
+        if not interaction.guild:
+            await interaction.followup.send(
+                embed=error_embed("Error", "Use this command in a server."),
+                ephemeral=True,
+            )
+            return
+        try:
+            await db.set_shop_state(True, interaction.user.id)
+            st = await db.get_shop_state()
+            emb = self._embed(st)
+            await self._apply_status_embed(interaction, emb)
 
-        start = await get_text_channel(interaction.guild, gk.START_HERE_CHANNEL)
-        tos_role = await get_role(interaction.guild, gk.TOS_AGREED_ROLE)
-        open_role = await get_role(interaction.guild, gk.COMMISSIONS_OPEN_ROLE)
-        if start:
-            await start.set_permissions(interaction.guild.default_role, view_channel=False)
-            if tos_role:
-                await start.set_permissions(tos_role, view_channel=True)
-            if open_role:
-                await start.set_permissions(open_role, view_channel=True)
+            start = await get_text_channel(interaction.guild, gk.START_HERE_CHANNEL)
+            tos_role = await get_role(interaction.guild, gk.TOS_AGREED_ROLE)
+            open_role = await get_role(interaction.guild, gk.COMMISSIONS_OPEN_ROLE)
+            if start:
+                await start.set_permissions(interaction.guild.default_role, view_channel=False)
+                if tos_role:
+                    await start.set_permissions(tos_role, view_channel=True)
+                if open_role:
+                    await start.set_permissions(open_role, view_channel=True)
 
-        await interaction.followup.send(
-            embed=success_embed("Shop", "Commissions are now **open**."), ephemeral=True
-        )
+            await interaction.followup.send(
+                embed=success_embed("Shop", "Commissions are now **open**."), ephemeral=True
+            )
+        except discord.HTTPException as e:
+            detail = (getattr(e, "text", None) or str(e))[:200]
+            await interaction.followup.send(
+                embed=error_embed("Shop", f"Discord API error: {detail}"),
+                ephemeral=True,
+            )
+        except Exception:
+            log.exception("shop_open failed")
+            await interaction.followup.send(
+                embed=error_embed(
+                    "Shop",
+                    "Something went wrong while opening the shop. Check bot permissions and `/serverconfig`.",
+                ),
+                ephemeral=True,
+            )
 
     @shop.command(name="close", description="Close commissions (staff)")
     @is_staff()
     async def shop_close(self, interaction: discord.Interaction) -> None:
-        if not interaction.guild:
-            return
         await interaction.response.defer(ephemeral=True)
-        await db.set_shop_state(False, interaction.user.id)
-        st = await db.get_shop_state()
-        emb = self._embed(st)
-        await self._apply_status_embed(interaction, emb)
+        if not interaction.guild:
+            await interaction.followup.send(
+                embed=error_embed("Error", "Use this command in a server."),
+                ephemeral=True,
+            )
+            return
+        try:
+            await db.set_shop_state(False, interaction.user.id)
+            st = await db.get_shop_state()
+            emb = self._embed(st)
+            await self._apply_status_embed(interaction, emb)
 
-        start = await get_text_channel(interaction.guild, gk.START_HERE_CHANNEL)
-        tos_role = await get_role(interaction.guild, gk.TOS_AGREED_ROLE)
-        open_role = await get_role(interaction.guild, gk.COMMISSIONS_OPEN_ROLE)
-        if start:
-            if tos_role:
-                await start.set_permissions(tos_role, view_channel=False)
-            if open_role:
-                await start.set_permissions(open_role, view_channel=False)
+            start = await get_text_channel(interaction.guild, gk.START_HERE_CHANNEL)
+            tos_role = await get_role(interaction.guild, gk.TOS_AGREED_ROLE)
+            open_role = await get_role(interaction.guild, gk.COMMISSIONS_OPEN_ROLE)
+            if start:
+                if tos_role:
+                    await start.set_permissions(tos_role, view_channel=False)
+                if open_role:
+                    await start.set_permissions(open_role, view_channel=False)
 
-        await interaction.followup.send(
-            embed=success_embed("Shop", "Commissions are now **closed**."), ephemeral=True
-        )
+            await interaction.followup.send(
+                embed=success_embed("Shop", "Commissions are now **closed**."), ephemeral=True
+            )
+        except discord.HTTPException as e:
+            detail = (getattr(e, "text", None) or str(e))[:200]
+            await interaction.followup.send(
+                embed=error_embed("Shop", f"Discord API error: {detail}"),
+                ephemeral=True,
+            )
+        except Exception:
+            log.exception("shop_close failed")
+            await interaction.followup.send(
+                embed=error_embed(
+                    "Shop",
+                    "Something went wrong while closing the shop. Check bot permissions and `/serverconfig`.",
+                ),
+                ephemeral=True,
+            )
 
     @app_commands.command(name="shopstatus", description="Show whether commissions are open")
     async def shopstatus(self, interaction: discord.Interaction) -> None:
