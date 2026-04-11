@@ -9,4 +9,4 @@ For setup, configuration, and usage, start with the project [**README**](../READ
 - Command reference (slash commands by cog)
 - Database schema notes
 - Render / hosting checklist
-- Troubleshooting (intents, permissions, Roblox cookie rotation)
+- Troubleshooting (intents, permissions, `/serverconfig`)
