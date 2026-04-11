@@ -106,4 +106,15 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    import traceback
+
+    try:
+        main()
+    except SystemExit:
+        raise
+    except KeyboardInterrupt:
+        raise
+    except Exception:
+        traceback.print_exc()
+        sys.exit(1)
