@@ -234,7 +234,7 @@ You can use **`/serverconfig`** if you have **Administrator**, **Manage Server**
 
 ## Hosting the bot online
 
-For **Render**, Railway, or similar: run **`python main.py`** as the start command from the **`bot`** folder, set the same **environment variables** as in `.env`, and keep **port 8080** available if your host expects a health check (this project includes a small web keep-alive). Check your provider’s docs for “background worker” vs “web service.”
+For **Render**, Railway, or similar: run **`python main.py`** as the start command from the **`bot`** folder, set the same **environment variables** as in `.env`. The keep-alive server listens on the **`PORT`** environment variable (Render sets this automatically; locally it defaults to 8080). Do **not** hardcode a different port than `PORT` or public URLs may return **502**. Check your provider’s docs for “background worker” vs “web service.”
 
 ---
 
