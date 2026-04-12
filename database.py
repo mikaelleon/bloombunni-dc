@@ -84,6 +84,13 @@ async def _ensure_tickets_schema(db: aiosqlite.Connection) -> None:
     await db.execute("ALTER TABLE tickets_new RENAME TO tickets")
 
 
+async def _ensure_ticket_buttons_columns(db: aiosqlite.Connection) -> None:
+    cur = await db.execute("PRAGMA table_info(ticket_buttons)")
+    cols = {row[1] for row in await cur.fetchall()}
+    if "select_options" not in cols:
+        await db.execute("ALTER TABLE ticket_buttons ADD COLUMN select_options TEXT")
+
+
 async def init_db() -> None:
     async with aiosqlite.connect(DATABASE_PATH) as db:
         await db.execute(
@@ -252,7 +259,8 @@ async def init_db() -> None:
                 emoji TEXT,
                 color TEXT DEFAULT 'blurple',
                 category_id INTEGER,
-                form_fields TEXT
+                form_fields TEXT,
+                select_options TEXT
             )
             """
         )
@@ -261,6 +269,7 @@ async def init_db() -> None:
         )
 
         await _ensure_tickets_schema(db)
+        await _ensure_ticket_buttons_columns(db)
         await db.commit()
 
 
@@ -641,16 +650,17 @@ async def insert_ticket_button(
     color: str,
     category_id: int | None,
     form_fields: str | None,
+    select_options: str | None = None,
 ) -> None:
     async with aiosqlite.connect(DATABASE_PATH) as db:
         await db.execute(
             """
             INSERT INTO ticket_buttons (
-                button_id, guild_id, label, emoji, color, category_id, form_fields
+                button_id, guild_id, label, emoji, color, category_id, form_fields, select_options
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (button_id, guild_id, label, emoji, color, category_id, form_fields),
+            (button_id, guild_id, label, emoji, color, category_id, form_fields, select_options),
         )
         await db.commit()
 
@@ -672,6 +682,17 @@ async def update_ticket_button_form_fields(button_id: str, form_fields: str | No
         await db.execute(
             "UPDATE ticket_buttons SET form_fields = ? WHERE button_id = ?",
             (form_fields, button_id),
+        )
+        await db.commit()
+
+
+async def update_ticket_button_select_options(
+    button_id: str, select_options: str | None
+) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            "UPDATE ticket_buttons SET select_options = ? WHERE button_id = ?",
+            (select_options, button_id),
         )
         await db.commit()
 

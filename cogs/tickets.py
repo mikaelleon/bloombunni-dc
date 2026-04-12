@@ -24,13 +24,8 @@ _SETUP_CH_ERR = (
     "**numeric channel ID** (Developer Mode → Copy Channel ID)."
 )
 
-DEFAULT_FORM_FIELDS: list[dict[str, Any]] = [
-    {
-        "label": "Commission Type",
-        "placeholder": "e.g. chibi, fullbody, bust",
-        "required": True,
-        "long": False,
-    },
+# Modal-only fields (commission type is chosen in a Select menu first).
+DEFAULT_MODAL_FIELDS: list[dict[str, Any]] = [
     {
         "label": "Number of Characters",
         "placeholder": "e.g. 1, 2",
@@ -56,6 +51,24 @@ DEFAULT_FORM_FIELDS: list[dict[str, Any]] = [
         "long": True,
     },
 ]
+
+DEFAULT_SELECT_OPTIONS: list[str] = [
+    "Chibi",
+    "Chibi Scene",
+    "Normal / Semi-Realistic",
+    "Bust",
+    "Fullbody",
+    "Other",
+]
+
+# Welcome embed field order (commission type is prepended from the Select, not the modal).
+WELCOME_FIELD_ORDER: tuple[str, ...] = (
+    "Commission Type",
+    "Number of Characters",
+    "Mode of Payment",
+    "Reference Links",
+    "Additional Notes",
+)
 
 BUTTON_STYLE_MAP: dict[str, discord.ButtonStyle] = {
     "blurple": discord.ButtonStyle.primary,
@@ -92,14 +105,28 @@ async def _ensure_unique_button_id(guild_id: int, base_id: str) -> str:
 
 def _parse_form_fields_json(raw: str | None) -> list[dict[str, Any]]:
     if not raw or not str(raw).strip():
-        return list(DEFAULT_FORM_FIELDS)
+        return [dict(f) for f in DEFAULT_MODAL_FIELDS]
     try:
         data = json.loads(raw)
         if not isinstance(data, list) or len(data) < 1:
             raise ValueError("invalid list")
         return data
     except (json.JSONDecodeError, ValueError):
-        return list(DEFAULT_FORM_FIELDS)
+        return [dict(f) for f in DEFAULT_MODAL_FIELDS]
+
+
+def _parse_select_options_from_row(row: dict[str, Any]) -> list[str]:
+    raw = row.get("select_options")
+    if not raw or not str(raw).strip():
+        return list(DEFAULT_SELECT_OPTIONS)
+    try:
+        data = json.loads(raw)
+        if isinstance(data, list) and len(data) >= 1:
+            out = [str(x).strip()[:100] for x in data if str(x).strip()]
+            return out[:25]
+    except json.JSONDecodeError:
+        pass
+    return list(DEFAULT_SELECT_OPTIONS)
 
 
 def _validate_form_fields(data: Any) -> tuple[list[dict[str, Any]] | None, str | None]:
@@ -107,8 +134,8 @@ def _validate_form_fields(data: Any) -> tuple[list[dict[str, Any]] | None, str |
         return None, "JSON must be an array of field objects."
     if len(data) < 1:
         return None, "Provide at least one field."
-    if len(data) > 5:
-        return None, "Maximum 5 fields (Discord modal limit)."
+    if len(data) > 4:
+        return None, "Maximum 4 modal fields (commission type uses the select menu first)."
     out: list[dict[str, Any]] = []
     for i, item in enumerate(data):
         if not isinstance(item, dict):
@@ -127,6 +154,18 @@ def _validate_form_fields(data: Any) -> tuple[list[dict[str, Any]] | None, str |
     return out, None
 
 
+def _parse_comma_select_options(text: str) -> tuple[list[str] | None, str | None]:
+    parts = [p.strip() for p in text.split(",") if p.strip()]
+    if len(parts) < 1:
+        return None, "Provide at least one option."
+    if len(parts) > 25:
+        return None, "Maximum 25 options (Discord select limit)."
+    for i, p in enumerate(parts):
+        if len(p) > 100:
+            return None, f"Option {i + 1} is longer than 100 characters."
+    return parts, None
+
+
 class CloseTicketView(discord.ui.View):
     def __init__(self) -> None:
         super().__init__(timeout=None)
@@ -142,13 +181,75 @@ class CloseTicketView(discord.ui.View):
         await cog.handle_close_button(interaction)
 
 
-class TicketFormModal(discord.ui.Modal):
+class CommissionTypeSelectView(discord.ui.View):
+    """Ephemeral-only: commission type select → modal. Not registered with add_view."""
+
     def __init__(
         self,
         cog: TicketsCog,
         guild_id: int,
         button_id: str,
         button_label: str,
+        row: dict[str, Any],
+    ) -> None:
+        super().__init__(timeout=60.0)
+        self.cog = cog
+        self.guild_id = guild_id
+        self.button_id = button_id
+        self.button_label = button_label
+        self._row = row
+
+        opts = _parse_select_options_from_row(row)[:25]
+        select = discord.ui.Select(
+            placeholder="Choose a commission type…",
+            custom_id="ticket_commission_type",
+            options=[
+                discord.SelectOption(label=t[:100], value=t[:100]) for t in opts
+            ],
+        )
+
+        async def _select_cb(interaction: discord.Interaction) -> None:
+            if not interaction.data or "values" not in interaction.data:
+                return
+            commission_type = str(interaction.data["values"][0])[:100]
+            fields = _parse_form_fields_json(self._row.get("form_fields"))
+            modal = CommissionModal(
+                self.cog,
+                self.guild_id,
+                self.button_id,
+                self.button_label,
+                commission_type,
+                fields,
+            )
+            await interaction.response.send_modal(modal)
+
+        select.callback = _select_cb
+        self.add_item(select)
+
+    async def on_timeout(self) -> None:
+        for child in self.children:
+            child.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(
+                    embed=info_embed(
+                        "Timed out",
+                        "Timed out. Click the button again to restart.",
+                    ),
+                    view=self,
+                )
+            except discord.HTTPException:
+                pass
+
+
+class CommissionModal(discord.ui.Modal):
+    def __init__(
+        self,
+        cog: TicketsCog,
+        guild_id: int,
+        button_id: str,
+        button_label: str,
+        commission_type: str,
         fields: list[dict[str, Any]],
     ) -> None:
         super().__init__(title="Please answer the question below.")
@@ -156,8 +257,9 @@ class TicketFormModal(discord.ui.Modal):
         self.guild_id = guild_id
         self.button_id = button_id
         self.button_label = button_label
+        self.commission_type = commission_type
         self._field_labels: list[str] = []
-        for i, f in enumerate(fields[:5]):
+        for i, f in enumerate(fields[:4]):
             lab = str(f.get("label", "Field"))[:45]
             self._field_labels.append(lab)
             ph = str(f.get("placeholder", ""))[:100]
@@ -186,6 +288,7 @@ class TicketFormModal(discord.ui.Modal):
             self.guild_id,
             self.button_id,
             self.button_label,
+            self.commission_type,
             answers,
         )
 
@@ -520,22 +623,69 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             ephemeral=True,
         )
 
-    # --- Legacy /setup (tos, payment) ---
-
-    @setup_group.command(
-        name="tickets",
-        description="[Deprecated] Use /ticketpanel — post info about the new ticket system",
+    @ticketform.command(
+        name="setoptions",
+        description="Set commission type options for the select menu (comma-separated)",
+    )
+    @app_commands.describe(
+        button="Button label",
+        options="Comma-separated, e.g. Chibi, Chibi Scene, Fullbody",
     )
     @is_staff()
-    async def setup_tickets_info(self, interaction: discord.Interaction) -> None:
+    async def ticketform_setoptions(
+        self, interaction: discord.Interaction, button: str, options: str
+    ) -> None:
+        if not interaction.guild:
+            return
+        row = await db.find_ticket_button_by_label(interaction.guild.id, button)
+        if not row:
+            await interaction.response.send_message(
+                embed=error_embed("Not found", "No button with that label."),
+                ephemeral=True,
+            )
+            return
+        parsed, err = _parse_comma_select_options(options)
+        if parsed is None:
+            await interaction.response.send_message(
+                embed=error_embed("Options", err or "Invalid options."),
+                ephemeral=True,
+            )
+            return
+        await db.update_ticket_button_select_options(
+            row["button_id"], json.dumps(parsed, ensure_ascii=False)
+        )
+        listed = "\n".join(f"• {o}" for o in parsed)
         await interaction.response.send_message(
-            embed=info_embed(
-                "Ticket panel",
-                "Use **`/ticketpanel`** to set the embed and channel, then **`/ticketbutton add`** "
-                "to add ticket types. The old single-button panel is replaced by this system.",
-            ),
+            embed=success_embed("Select options saved", listed[:4000]),
             ephemeral=True,
         )
+
+    @ticketform.command(
+        name="resetoptions",
+        description="Reset commission type select options to the default list",
+    )
+    @app_commands.describe(button="Button label")
+    @is_staff()
+    async def ticketform_resetoptions(
+        self, interaction: discord.Interaction, button: str
+    ) -> None:
+        if not interaction.guild:
+            return
+        row = await db.find_ticket_button_by_label(interaction.guild.id, button)
+        if not row:
+            await interaction.response.send_message(
+                embed=error_embed("Not found", "No button with that label."),
+                ephemeral=True,
+            )
+            return
+        await db.update_ticket_button_select_options(row["button_id"], None)
+        listed = "\n".join(f"• {o}" for o in DEFAULT_SELECT_OPTIONS)
+        await interaction.response.send_message(
+            embed=success_embed("Options reset", f"Restored defaults:\n{listed}"),
+            ephemeral=True,
+        )
+
+    # --- /setup (tos, payment) ---
 
     @setup_group.command(
         name="tos",
@@ -702,15 +852,18 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             )
             return
 
-        fields = _parse_form_fields_json(row.get("form_fields"))
-        modal = TicketFormModal(
+        emb = info_embed(
+            "Commission type",
+            "What type of commission are you ordering?",
+        )
+        view = CommissionTypeSelectView(
             self,
             interaction.guild.id,
             button_id,
             str(row["label"]),
-            fields,
+            row,
         )
-        await interaction.response.send_modal(modal)
+        await interaction.response.send_message(embed=emb, view=view, ephemeral=True)
 
     async def handle_modal_submit(
         self,
@@ -718,6 +871,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         guild_id: int,
         button_id: str,
         button_label: str,
+        commission_type: str,
         answers: dict[str, str],
     ) -> None:
         if not interaction.guild:
@@ -792,12 +946,14 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             )
             return
 
+        full_answers: dict[str, str] = {"Commission Type": commission_type}
+        full_answers.update(answers)
         await db.insert_ticket_open(
             ticket_ch.id,
             interaction.guild.id,
             member.id,
             button_id=button_id,
-            answers=answers,
+            answers=full_answers,
         )
 
         try:
@@ -805,7 +961,13 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         except discord.HTTPException:
             pass
 
-        desc_lines = [f"**{k}:** {v}" for k, v in answers.items()]
+        desc_lines: list[str] = []
+        for key in WELCOME_FIELD_ORDER:
+            if key in full_answers:
+                desc_lines.append(f"**{key}:** {full_answers[key]}")
+        for k, v in full_answers.items():
+            if k not in WELCOME_FIELD_ORDER:
+                desc_lines.append(f"**{k}:** {v}")
         body = "\n".join(desc_lines)[:3900]
         welcome = discord.Embed(
             title=f"🎀 {button_label} ticket — {member.display_name}",

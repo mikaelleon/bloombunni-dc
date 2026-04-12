@@ -42,7 +42,7 @@ _CHANNEL_HELP: dict[str, str] = {
     gk.TRANSCRIPT_CHANNEL: "Archived ticket transcripts are posted here when tickets close.",
     gk.VOUCHES_CHANNEL: "Where `/vouch` logs public vouches (must match this channel when used).",
     gk.ORDER_NOTIFS_CHANNEL: "Optional pings for order updates (if your workflow uses it).",
-    gk.START_HERE_CHANNEL: "Home for the ticket panel from `/setup tickets` (after you pick the channel).",
+    gk.START_HERE_CHANNEL: "Optional: channel where you also post links; ticket UI uses `/ticketpanel`.",
     gk.TOS_CHANNEL: "Terms of Service text and agree button; `/setup tos` posts here.",
     gk.PAYMENT_CHANNEL: "Payment method panel; `/setup payment` posts the buttons here.",
     gk.WARN_LOG_CHANNEL: "Staff `/warn` entries are copied here for moderation records.",
@@ -77,8 +77,8 @@ def _guide_overview_embed() -> discord.Embed:
         "2. **`/serverconfig category`** — Place ticket columns (new → done).\n"
         "3. **`/serverconfig role`** — Staff and automation roles (picker).\n"
         "4. **`/serverconfig payment`** — GCash / PayPal / Ko-fi text and image URLs.\n"
-        "5. **`/setup`** — Deploy ticket, TOS, and payment panels; each command asks which "
-        "channel to use and saves that slot for you.\n\n"
+        "5. **`/ticketpanel`** / **`/ticketbutton`** / **`/setup tos`** / **`/setup payment`** — "
+        "Post the ticket panel, TOS, and payment UIs (see Step 5).\n\n"
         "When you are done, run **`/serverconfig show`** anytime to review mappings (last pages)."
     )
     return info_embed("Server configuration — overview", body)
@@ -131,16 +131,16 @@ def _guide_payment_embed() -> discord.Embed:
 
 def _guide_setup_embed() -> discord.Embed:
     body = (
-        "**Step 5 — Deploy panels (`/setup`)**\n\n"
-        "Each command requires a **channel** (mention or ID) where the panel should appear. "
-        "The bot saves the matching **`/serverconfig channel`** slot at the same time "
-        "(Start Here, TOS, or Payment).\n\n"
-        "• **`/ticketpanel`** + **`/ticketbutton`** — Configurable ticket panel with forms.\n"
+        "**Step 5 — Post panels**\n\n"
+        "**Ticket:** **`/ticketpanel`** (embed + channel) and **`/ticketbutton add`** for ticket types. "
+        "**TOS / payment:** **`/setup tos`** and **`/setup payment`** each take a **channel** (mention or ID); "
+        "the bot saves the matching **`/serverconfig channel`** slot.\n\n"
+        "• **`/ticketpanel`** / **`/ticketbutton`** — Configurable ticket panel with forms.\n"
         "• **`/setup tos`** — Terms of Service message and agree button.\n"
         "• **`/setup payment`** — GCash / PayPal / Ko-fi buttons (needs payment strings set).\n\n"
         "After deploying, use **`/serverconfig show`** to verify everything."
     )
-    return info_embed("Step 5 — `/setup` (post panels)", body)
+    return info_embed("Step 5 — Post panels", body)
 
 
 def _status_lines_for_guild(

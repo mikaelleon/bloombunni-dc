@@ -103,7 +103,7 @@ Do this **after** the bot is online and invited with enough permissions (see [Di
 2. Use **`/serverconfig channel`**, **`/serverconfig category`**, and **`/serverconfig role`** until every slot you need is filled (queue channel, ticket categories, staff role, TOS role, etc.).
 3. Set **payment** text and URLs with **`/serverconfig payment`** (`gcash_details`, `paypal_link`, `kofi_link`, `gcash_qr`, `paypal_qr`) so the payment buttons work.
 4. Put your TOS text in **`tos.txt`** (in the `bot` folder) if you use the TOS panel.
-5. Staff runs **`/setup tickets`**, **`/setup tos`**, and **`/setup payment`** to post the panels into the channels you configured.
+5. Staff runs **`/ticketpanel`** (and **`/ticketbutton add`** for each ticket type), plus **`/setup tos`** and **`/setup payment`**, to post the panels into the channels you configured.
 
 **Order matters:** configure **`/serverconfig`** before expecting tickets or queue to work.
 
@@ -143,7 +143,7 @@ If something fails with “missing permissions,” give the bot’s role a highe
 
 ### Tickets and transcripts
 
-- **Open a ticket:** Button on the panel staff posted with **`/setup tickets`** (requires TOS role + shop open).
+- **Open a ticket:** Button on the panel staff posted with **`/ticketpanel`** / **`/ticketbutton`** (requires TOS role + shop open).
 - **Close:** Button in the ticket or **`/close`**; builds an **HTML transcript**, tries to DM the client, and posts a copy to your transcript channel when possible.
 
 ### Queue and orders
@@ -204,7 +204,7 @@ Staff commands use the role you set in **`/serverconfig role` → Staff**. If th
 
 | Command | What it does |
 |--------|----------------|
-| **`/setup tickets`** | Posts the “open a ticket” panel in **Start Here**. |
+| **`/ticketpanel`**, **`/ticketbutton`**, **`/ticketform`** | Configure and post the configurable ticket panel (see `/serverconfig show` guide). |
 | **`/setup tos`** | Posts the TOS panel in your **TOS** channel. |
 | **`/setup payment`** | Posts the payment panel in your **payment** channel. |
 | **`/shop open`**, **`/shop close`** | Opens or closes the shop. |
