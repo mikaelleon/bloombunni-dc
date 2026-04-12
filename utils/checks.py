@@ -55,6 +55,19 @@ def shop_is_open():
     return app_commands.check(predicate)
 
 
+def is_guild_owner():
+    """Only the Discord server owner (guild.owner_id)."""
+
+    async def predicate(interaction) -> bool:
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            raise app_commands.CheckFailure("This command can only be used in a server.")
+        if interaction.guild.owner_id != interaction.user.id:
+            raise app_commands.CheckFailure("Only the **server owner** can use this command.")
+        return True
+
+    return app_commands.check(predicate)
+
+
 def can_manage_server_config():
     """Administrator, Manage Server, or configured staff role."""
 

@@ -35,6 +35,7 @@ class MikaBot(commands.Bot):
         config.validate_config()
 
         exts = [
+            "cogs.owner_tools",
             "cogs.serverconfig",
             "cogs.tickets",
             "cogs.queue",
