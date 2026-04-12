@@ -36,7 +36,9 @@ class MikaBot(commands.Bot):
 
         exts = [
             "cogs.owner_tools",
-            "cogs.serverconfig",
+            "cogs.config_cmd",
+            "cogs.setup_wizard",
+            "cogs.quotes",
             "cogs.tickets",
             "cogs.queue",
             "cogs.shop",
@@ -108,6 +110,29 @@ async def on_ready() -> None:
     sticky = bot.get_cog("StickyCog")
     if sticky and hasattr(sticky, "refresh_sticky_cache"):
         await sticky.refresh_sticky_cache()
+
+    for g in bot.guilds:
+        try:
+            if await db.guild_has_any_config(g.id):
+                continue
+            if await db.get_setup_hint_sent(g.id):
+                continue
+            ch = g.system_channel
+            if ch is None or not ch.permissions_for(g.me).send_messages:
+                ch = g.rules_channel
+            if ch is None or not ch.permissions_for(g.me).send_messages:
+                for tc in g.text_channels:
+                    if tc.permissions_for(g.me).send_messages:
+                        ch = tc
+                        break
+            if ch and ch.permissions_for(g.me).send_messages:
+                await ch.send(
+                    "👋 Hi! I'm not fully configured for this server yet. "
+                    "A manager should run **`/setup`** (wizard) or **`/config view`**."
+                )
+                await db.set_setup_hint_sent(g.id)
+        except discord.HTTPException:
+            log.warning("setup hint: could not message guild %s", g.id)
 
 
 @bot.tree.error

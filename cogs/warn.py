@@ -12,7 +12,7 @@ from guild_config import get_text_channel
 from utils.checks import is_staff
 from utils.embeds import DEFAULT_EMBED_COLOR, PRIMARY, info_embed, success_embed, user_hint, user_warn, warning_embed
 
-WARN_THRESHOLD = 3
+WARN_THRESHOLD_DEFAULT = 3
 
 
 def _norm_reason(reason: str | None) -> str:
@@ -20,18 +20,27 @@ def _norm_reason(reason: str | None) -> str:
     return r if r else "no reason specified"
 
 
-def _warn_notice_embed(*, shop_name: str, reason: str, total: int) -> discord.Embed:
+def _warn_notice_embed(
+    *, shop_name: str, reason: str, total: int, threshold: int
+) -> discord.Embed:
     """DM notice styled like the reference (⚠️ WARNED NOTICE !)."""
     return discord.Embed(
         title="⚠️ WARNED NOTICE !",
         description=(
             f"hello ! you have been **warned** from **{shop_name}** for **{reason}**. "
-            f"**take note** that once you received a total of **{WARN_THRESHOLD} warnings** from them you will be "
+            f"**take note** that once you received a total of **{threshold} warnings** from them you will be "
             f"**automatically banned** from their **server**. so, please **follow** their **rules. thank you !** "
             f"your **warning count : {total}** ⚠️"
         ),
         color=DEFAULT_EMBED_COLOR,
     )
+
+
+async def _guild_warn_threshold(guild_id: int) -> int:
+    v = await db.get_guild_setting(guild_id, gk.WARN_THRESHOLD_KEY)
+    if v is None:
+        return WARN_THRESHOLD_DEFAULT
+    return max(1, min(100, int(v)))
 
 
 class WarnPages(discord.ui.View):
@@ -80,11 +89,14 @@ class WarnCog(commands.Cog, name="WarnCog"):
         reason_s = _norm_reason(reason)
         await interaction.response.defer(ephemeral=True)
 
+        thr = await _guild_warn_threshold(interaction.guild.id)
         wid = await db.add_warn(user.id, interaction.user.id, reason_s)
         total = await db.count_warns(user.id)
         shop_name = interaction.guild.name
 
-        dm_emb = _warn_notice_embed(shop_name=shop_name, reason=reason_s, total=total)
+        dm_emb = _warn_notice_embed(
+            shop_name=shop_name, reason=reason_s, total=total, threshold=thr
+        )
         try:
             await user.send(embed=dm_emb)
         except discord.Forbidden:
@@ -120,7 +132,7 @@ class WarnCog(commands.Cog, name="WarnCog"):
             embed=success_embed("Warn logged", staff_note),
             ephemeral=True,
         )
-        if total >= WARN_THRESHOLD:
+        if total >= thr:
             try:
                 await user.ban(reason="3 warns reached", delete_message_days=0)
             except discord.Forbidden:
@@ -170,6 +182,27 @@ class WarnCog(commands.Cog, name="WarnCog"):
             return
         await interaction.response.send_message(
             embed=success_embed("Cleared", f"Warn `{warn_id}` removed."), ephemeral=True
+        )
+
+    @app_commands.command(
+        name="setwarnthreshold",
+        description="Auto-ban after this many warns (default 3)",
+    )
+    @app_commands.describe(threshold="1–100")
+    @is_staff()
+    async def setwarnthreshold_cmd(
+        self,
+        interaction: discord.Interaction,
+        threshold: app_commands.Range[int, 1, 100],
+    ) -> None:
+        if not interaction.guild:
+            return
+        await db.set_guild_setting(
+            interaction.guild.id, gk.WARN_THRESHOLD_KEY, int(threshold)
+        )
+        await interaction.response.send_message(
+            embed=success_embed("Saved", f"Warn threshold set to **{threshold}**."),
+            ephemeral=True,
         )
 
     @app_commands.command(name="clearallwarns", description="Clear all warns for a member (staff)")

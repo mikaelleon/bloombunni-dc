@@ -35,7 +35,7 @@ class TOSAgreeView(discord.ui.View):
         role = await get_role(interaction.guild, gk.TOS_AGREED_ROLE)
         if role is None:
             await interaction.response.send_message(
-                embed=user_hint("TOS role not set", "Ask an admin to map **TOS agreed role** in **`/serverconfig role`**."), ephemeral=True
+                embed=user_hint("TOS role not set", "Ask an admin to map **TOS agreed role** in **`/setup`** or staff tools."), ephemeral=True
             )
             return
         if role in interaction.user.roles:
@@ -76,7 +76,7 @@ class ShopCog(commands.Cog, name="ShopCog"):
     async def run_setup_tos(
         self, interaction: discord.Interaction, ch: discord.TextChannel
     ) -> None:
-        """Called from `/setup tos` with a resolved TOS text channel."""
+        """Called from `/deploy tos` with a resolved TOS text channel."""
         text = (
             config.TOS_FILE.read_text(encoding="utf-8")
             if config.TOS_FILE.exists()
@@ -169,7 +169,7 @@ class ShopCog(commands.Cog, name="ShopCog"):
             await interaction.followup.send(
                 embed=user_warn(
                     "Couldn’t open shop",
-                    "Something went wrong — check bot permissions and **`/serverconfig`** mappings.",
+                    "Something went wrong — check bot permissions and **`/config view`** mappings.",
                 ),
                 ephemeral=True,
             )
@@ -213,7 +213,7 @@ class ShopCog(commands.Cog, name="ShopCog"):
             await interaction.followup.send(
                 embed=user_warn(
                     "Couldn’t close shop",
-                    "Something went wrong — check bot permissions and **`/serverconfig`** mappings.",
+                    "Something went wrong — check bot permissions and **`/config view`** mappings.",
                 ),
                 ephemeral=True,
             )

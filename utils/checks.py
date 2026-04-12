@@ -17,7 +17,7 @@ def is_staff():
         rid = await db.get_guild_setting(interaction.guild.id, gk.STAFF_ROLE)
         if not rid:
             raise app_commands.CheckFailure(
-                "Staff role is not configured. Ask a server manager to run `/serverconfig`."
+                "Staff role is not configured. Ask a server manager to run **`/setup`** or **`/config view`**."
             )
         role = interaction.guild.get_role(int(rid))
         if role is None or role not in interaction.user.roles:
@@ -34,7 +34,7 @@ def has_tos():
         rid = await db.get_guild_setting(interaction.guild.id, gk.TOS_AGREED_ROLE)
         if not rid:
             raise app_commands.CheckFailure(
-                "TOS role is not configured. Ask a server manager to run `/serverconfig`."
+                "TOS role is not configured. Ask a server manager to run **`/setup`** or **`/config view`**."
             )
         role = interaction.guild.get_role(int(rid))
         if role is None or role not in interaction.user.roles:
@@ -83,7 +83,7 @@ def can_manage_server_config():
             if role and role in interaction.user.roles:
                 return True
         raise app_commands.CheckFailure(
-            "You need **Manage Server**, **Administrator**, or the configured staff role."
+            "You need **Manage Server**, **Administrator**, or the configured **staff** role (see **`/config view`**)."
         )
 
     return app_commands.check(predicate)

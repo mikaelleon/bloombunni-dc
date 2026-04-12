@@ -269,7 +269,7 @@ class QueueCog(commands.Cog, name="QueueCog"):
             await interaction.followup.send(
                 embed=user_hint(
                     "Channels not configured",
-                    "Set **Queue** and **Vouches** under **`/serverconfig channel`** first.",
+                    "Set **Queue** and **Vouches** under **`/setup`** (Queue group) or **`/config view`** first.",
                 ),
                 ephemeral=True,
             )
@@ -351,7 +351,7 @@ class QueueCog(commands.Cog, name="QueueCog"):
         vcid = await db.get_guild_setting(guild.id, gk.VOUCHES_CHANNEL)
         if not qcid or not vcid:
             await interaction.followup.send(
-                embed=user_hint("Channels not configured", "Set **Queue** and **Vouches** under **`/serverconfig channel`**."),
+                embed=user_hint("Channels not configured", "Set **Queue** and **Vouches** via **`/setup`** or check **`/config view`**."),
                 ephemeral=True,
             )
             return
@@ -479,8 +479,12 @@ class QueueCog(commands.Cog, name="QueueCog"):
         now = datetime.now(timezone.utc)
         mm = now.month
         yy = now.year % 100
-        month_count = await db.count_orders_in_month(now.year, now.month) + 1
-        order_id = f"MIKA-{mm:02d}{yy:02d}-{month_count:04d}"
+        raw_pf = await db.get_guild_string_setting(
+            interaction.guild.id, gk.ORDER_ID_PREFIX
+        )
+        op = re.sub(r"[^A-Za-z0-9_-]", "", (raw_pf or "MIKA").strip())[:24] or "MIKA"
+        month_count = await db.count_orders_in_month(now.year, now.month, op) + 1
+        order_id = f"{op}-{mm:02d}{yy:02d}-{month_count:04d}"
 
         buyer_count_before = await db.count_orders_for_buyer(buyer.id)
         order_number = buyer_count_before + 1
@@ -525,7 +529,7 @@ class QueueCog(commands.Cog, name="QueueCog"):
             await interaction.followup.send(
                 embed=user_hint(
                     "Channels not configured",
-                    "Set **Queue** and **Vouches** with **`/serverconfig channel`** first.",
+                    "Set **Queue** and **Vouches** with **`/setup`** (wizard) first.",
                 ),
                 ephemeral=True,
             )
@@ -545,7 +549,7 @@ class QueueCog(commands.Cog, name="QueueCog"):
 
         if not qmid:
             await interaction.followup.send(
-                embed=user_warn("Queue channel issue", "Couldn’t post to the queue channel — check bot **Send Messages** there or pick another channel in **`/serverconfig`**."),
+                embed=user_warn("Queue channel issue", "Couldn’t post to the queue channel — check bot **Send Messages** there or remap the queue channel."),
                 ephemeral=True,
             )
             return
@@ -725,6 +729,24 @@ class QueueCog(commands.Cog, name="QueueCog"):
         desc = f"**Completed orders:** {count}\n**Next milestone:** {next_m or 'max'}\n`{bar}`"
         await interaction.response.send_message(
             embed=info_embed("Loyalty", desc), ephemeral=True
+        )
+
+    @app_commands.command(
+        name="setorderprefix",
+        description="Set order ID prefix (e.g. MIKA). Letters, numbers, _ and - only.",
+    )
+    @app_commands.describe(prefix="Prefix before -MMYY-#### (default MIKA)")
+    @is_staff()
+    async def setorderprefix_cmd(self, interaction: discord.Interaction, prefix: str) -> None:
+        if not interaction.guild:
+            return
+        cleaned = re.sub(r"[^A-Za-z0-9_-]", "", prefix.strip())[:24] or "MIKA"
+        await db.set_guild_string_setting(
+            interaction.guild.id, gk.ORDER_ID_PREFIX, cleaned
+        )
+        await interaction.response.send_message(
+            embed=success_embed("Saved", f"Order IDs will use **`{cleaned}-`**…"),
+            ephemeral=True,
         )
 
     @app_commands.command(name="loyaltytop", description="Top 10 clients by completed orders")

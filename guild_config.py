@@ -56,7 +56,7 @@ async def ticket_category_ids(guild_id: int) -> set[int]:
 
 
 async def is_payment_config_complete(guild_id: int) -> bool:
-    """All payment panel strings set via /serverconfig payment."""
+    """All payment panel strings set via `/config payment` subcommands."""
     for key in gk.PAYMENT_ALL_KEYS:
         v = await db.get_guild_string_setting(guild_id, key)
         if not v or not str(v).strip():

@@ -91,6 +91,71 @@ async def _ensure_ticket_buttons_columns(db: aiosqlite.Connection) -> None:
         await db.execute("ALTER TABLE ticket_buttons ADD COLUMN select_options TEXT")
 
 
+async def _ensure_quote_and_wizard_schema(db: aiosqlite.Connection) -> None:
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS quote_guild_settings (
+            guild_id INTEGER PRIMARY KEY,
+            extra_character_php INTEGER NOT NULL DEFAULT 0,
+            bg_simple_php INTEGER NOT NULL DEFAULT 0,
+            bg_detailed_php INTEGER NOT NULL DEFAULT 0,
+            brand_name TEXT DEFAULT 'Mikaelleon'
+        )
+        """
+    )
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS quote_base_price (
+            guild_id INTEGER NOT NULL,
+            commission_type TEXT NOT NULL,
+            tier TEXT NOT NULL,
+            price_php INTEGER NOT NULL,
+            PRIMARY KEY (guild_id, commission_type, tier)
+        )
+        """
+    )
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS quote_role_discount (
+            guild_id INTEGER NOT NULL,
+            discount_key TEXT NOT NULL,
+            role_id INTEGER,
+            percent REAL NOT NULL DEFAULT 0,
+            PRIMARY KEY (guild_id, discount_key)
+        )
+        """
+    )
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS quote_currency (
+            guild_id INTEGER NOT NULL,
+            currency_code TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            PRIMARY KEY (guild_id, currency_code)
+        )
+        """
+    )
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS wizard_sessions (
+            guild_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            state_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (guild_id, user_id)
+        )
+        """
+    )
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS guild_flags (
+            guild_id INTEGER PRIMARY KEY,
+            setup_hint_sent INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+
+
 async def init_db() -> None:
     async with aiosqlite.connect(DATABASE_PATH) as db:
         await db.execute(
@@ -270,6 +335,7 @@ async def init_db() -> None:
 
         await _ensure_tickets_schema(db)
         await _ensure_ticket_buttons_columns(db)
+        await _ensure_quote_and_wizard_schema(db)
         await db.commit()
 
 
@@ -298,6 +364,39 @@ async def set_guild_setting(guild_id: int, key: str, value: int) -> None:
             "INSERT INTO guild_settings (guild_id, setting_key, value) VALUES (?, ?, ?)",
             (guild_id, key, value),
         )
+        await db.commit()
+
+
+async def delete_guild_settings_keys(guild_id: int, keys: list[str]) -> None:
+    if not keys:
+        return
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        for k in keys:
+            await db.execute(
+                "DELETE FROM guild_settings WHERE guild_id = ? AND setting_key = ?",
+                (guild_id, k),
+            )
+        await db.commit()
+
+
+async def delete_guild_string_settings_keys(guild_id: int, keys: list[str]) -> None:
+    if not keys:
+        return
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        for k in keys:
+            await db.execute(
+                "DELETE FROM guild_string_settings WHERE guild_id = ? AND setting_key = ?",
+                (guild_id, k),
+            )
+        await db.commit()
+
+
+async def clear_quote_data_for_guild(guild_id: int) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute("DELETE FROM quote_base_price WHERE guild_id = ?", (guild_id,))
+        await db.execute("DELETE FROM quote_guild_settings WHERE guild_id = ?", (guild_id,))
+        await db.execute("DELETE FROM quote_role_discount WHERE guild_id = ?", (guild_id,))
+        await db.execute("DELETE FROM quote_currency WHERE guild_id = ?", (guild_id,))
         await db.commit()
 
 
@@ -355,8 +454,11 @@ async def list_guild_string_settings(guild_id: int) -> dict[str, str]:
 # --- Orders ---
 
 
-async def count_orders_in_month(year: int, month: int) -> int:
-    prefix = f"MIKA-{month:02d}{year % 100:02d}-"
+async def count_orders_in_month(
+    year: int, month: int, order_prefix: str = "MIKA"
+) -> int:
+    p = (order_prefix or "MIKA").strip()[:24]
+    prefix = f"{p}-{month:02d}{year % 100:02d}-"
     async with aiosqlite.connect(DATABASE_PATH) as db:
         cur = await db.execute(
             "SELECT COUNT(*) FROM orders WHERE order_id LIKE ?",
@@ -1115,6 +1217,231 @@ async def all_sticky_channel_ids() -> list[int]:
         cur = await db.execute("SELECT channel_id FROM sticky_messages")
         rows = await cur.fetchall()
         return [int(r[0]) for r in rows]
+
+
+# --- Quote calculator ---
+
+
+async def guild_has_any_config(guild_id: int) -> bool:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cur = await db.execute(
+            "SELECT 1 FROM guild_settings WHERE guild_id = ? LIMIT 1", (guild_id,)
+        )
+        if await cur.fetchone():
+            return True
+        cur = await db.execute(
+            "SELECT 1 FROM guild_string_settings WHERE guild_id = ? LIMIT 1",
+            (guild_id,),
+        )
+        return await cur.fetchone() is not None
+
+
+async def get_quote_guild_settings(guild_id: int) -> dict[str, Any] | None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM quote_guild_settings WHERE guild_id = ?", (guild_id,)
+        )
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+
+async def upsert_quote_guild_settings(
+    guild_id: int,
+    *,
+    extra_character_php: int | None = None,
+    bg_simple_php: int | None = None,
+    bg_detailed_php: int | None = None,
+    brand_name: str | None = None,
+) -> None:
+    row = await get_quote_guild_settings(guild_id)
+    ex = row["extra_character_php"] if row else 0
+    bs = row["bg_simple_php"] if row else 0
+    bd = row["bg_detailed_php"] if row else 0
+    br = row["brand_name"] if row else "Mikaelleon"
+    if extra_character_php is not None:
+        ex = extra_character_php
+    if bg_simple_php is not None:
+        bs = bg_simple_php
+    if bg_detailed_php is not None:
+        bd = bg_detailed_php
+    if brand_name is not None:
+        br = brand_name[:200]
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """
+            INSERT INTO quote_guild_settings (
+                guild_id, extra_character_php, bg_simple_php, bg_detailed_php, brand_name
+            )
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(guild_id) DO UPDATE SET
+                extra_character_php = excluded.extra_character_php,
+                bg_simple_php = excluded.bg_simple_php,
+                bg_detailed_php = excluded.bg_detailed_php,
+                brand_name = excluded.brand_name
+            """,
+            (guild_id, ex, bs, bd, br),
+        )
+        await db.commit()
+
+
+async def list_quote_base_prices(guild_id: int) -> list[dict[str, Any]]:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM quote_base_price WHERE guild_id = ? ORDER BY commission_type, tier",
+            (guild_id,),
+        )
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def upsert_quote_base_price(
+    guild_id: int, commission_type: str, tier: str, price_php: int
+) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """
+            INSERT INTO quote_base_price (guild_id, commission_type, tier, price_php)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(guild_id, commission_type, tier) DO UPDATE SET
+                price_php = excluded.price_php
+            """,
+            (guild_id, commission_type[:80], tier[:80], price_php),
+        )
+        await db.commit()
+
+
+async def get_quote_discount(
+    guild_id: int, discount_key: str
+) -> dict[str, Any] | None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM quote_role_discount WHERE guild_id = ? AND discount_key = ?",
+            (guild_id, discount_key),
+        )
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+
+async def upsert_quote_discount(
+    guild_id: int,
+    discount_key: str,
+    *,
+    role_id: int | None,
+    percent: float,
+) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """
+            INSERT INTO quote_role_discount (guild_id, discount_key, role_id, percent)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(guild_id, discount_key) DO UPDATE SET
+                role_id = excluded.role_id,
+                percent = excluded.percent
+            """,
+            (guild_id, discount_key[:32], role_id, percent),
+        )
+        await db.commit()
+
+
+async def list_quote_currencies(guild_id: int) -> list[dict[str, Any]]:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM quote_currency WHERE guild_id = ? ORDER BY currency_code",
+            (guild_id,),
+        )
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def set_quote_currency_enabled(
+    guild_id: int, currency_code: str, enabled: bool
+) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """
+            INSERT INTO quote_currency (guild_id, currency_code, enabled)
+            VALUES (?, ?, ?)
+            ON CONFLICT(guild_id, currency_code) DO UPDATE SET enabled = excluded.enabled
+            """,
+            (guild_id, currency_code.upper()[:8], 1 if enabled else 0),
+        )
+        await db.commit()
+
+
+async def ensure_default_quote_currencies(guild_id: int) -> None:
+    defaults = ("USD", "SGD", "MYR", "EUR")
+    existing = {r["currency_code"] for r in await list_quote_currencies(guild_id)}
+    for code in defaults:
+        if code not in existing:
+            await set_quote_currency_enabled(guild_id, code, True)
+
+
+# --- Wizard session + guild flags ---
+
+
+async def get_wizard_session(guild_id: int, user_id: int) -> dict[str, Any] | None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM wizard_sessions WHERE guild_id = ? AND user_id = ?",
+            (guild_id, user_id),
+        )
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+
+async def save_wizard_session(
+    guild_id: int, user_id: int, state: dict[str, Any]
+) -> None:
+    now = _utc_now()
+    raw = json.dumps(state, ensure_ascii=False)
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """
+            INSERT INTO wizard_sessions (guild_id, user_id, state_json, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(guild_id, user_id) DO UPDATE SET
+                state_json = excluded.state_json,
+                updated_at = excluded.updated_at
+            """,
+            (guild_id, user_id, raw, now),
+        )
+        await db.commit()
+
+
+async def delete_wizard_session(guild_id: int, user_id: int) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            "DELETE FROM wizard_sessions WHERE guild_id = ? AND user_id = ?",
+            (guild_id, user_id),
+        )
+        await db.commit()
+
+
+async def get_setup_hint_sent(guild_id: int) -> bool:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cur = await db.execute(
+            "SELECT setup_hint_sent FROM guild_flags WHERE guild_id = ?", (guild_id,)
+        )
+        row = await cur.fetchone()
+        return bool(row and row[0])
+
+
+async def set_setup_hint_sent(guild_id: int) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """
+            INSERT INTO guild_flags (guild_id, setup_hint_sent)
+            VALUES (?, 1)
+            ON CONFLICT(guild_id) DO UPDATE SET setup_hint_sent = 1
+            """,
+            (guild_id,),
+        )
+        await db.commit()
 
 
 # --- Default templates JSON (sync) ---

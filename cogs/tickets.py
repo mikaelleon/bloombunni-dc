@@ -294,7 +294,10 @@ class CommissionModal(discord.ui.Modal):
 
 
 class TicketsCog(commands.Cog, name="TicketsCog"):
-    setup_group = app_commands.Group(name="setup", description="Staff setup commands")
+    deploy_group = app_commands.Group(
+        name="deploy",
+        description="Post TOS / payment panels (use `/setup` for the full wizard)",
+    )
     ticketbutton = app_commands.Group(name="ticketbutton", description="Ticket panel buttons (staff)")
     ticketform = app_commands.Group(name="ticketform", description="Ticket form fields (staff)")
 
@@ -329,7 +332,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             await interaction.response.send_message(
                 embed=user_hint(
                     "Configuration required",
-                    "Please run `/serverconfig` first to set your **ticket category** "
+                    "Please run **`/setup`** or **`/config view`** first to set your **ticket category** "
                     "and **staff role**.",
                 ),
                 ephemeral=True,
@@ -685,9 +688,9 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             ephemeral=True,
         )
 
-    # --- /setup (tos, payment) ---
+    # --- /deploy tos, payment (panels) ---
 
-    @setup_group.command(
+    @deploy_group.command(
         name="tos",
         description="Post the TOS agreement panel in the channel you specify (mention or ID)",
     )
@@ -711,7 +714,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             return
         await shop.run_setup_tos(interaction, ch)
 
-    @setup_group.command(
+    @deploy_group.command(
         name="payment",
         description="Post the payment methods panel in the channel you specify (mention or ID)",
     )
@@ -897,7 +900,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             category = await get_category(interaction.guild, gk.TICKET_CATEGORY)
         if not category:
             await interaction.followup.send(
-                embed=user_hint("Config", "Ticket category missing. Set `/serverconfig category`."),
+                embed=user_hint("Config", "Ticket category missing. Use **`/setup`** (Tickets group) or map categories manually."),
                 ephemeral=True,
             )
             return

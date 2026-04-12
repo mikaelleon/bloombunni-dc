@@ -1,4 +1,4 @@
-"""Database keys for per-guild channel/role mappings (set via /serverconfig)."""
+"""Database keys for per-guild channel/role mappings (set via /setup wizard or /config)."""
 
 from __future__ import annotations
 
@@ -7,6 +7,8 @@ STAFF_ROLE = "staff_role"
 TOS_AGREED_ROLE = "tos_agreed_role"
 COMMISSIONS_OPEN_ROLE = "commissions_open_role"
 PLEASE_VOUCH_ROLE = "please_vouch_role"
+BOOSTIE_ROLE = "boostie_role"
+RESELLER_ROLE = "reseller_role"
 
 # Categories
 TICKET_CATEGORY = "ticket_category"
@@ -49,9 +51,11 @@ ROLE_SLOT_CHOICES: list[tuple[str, str]] = [
     ("TOS agreed", TOS_AGREED_ROLE),
     ("Commissions open", COMMISSIONS_OPEN_ROLE),
     ("Please vouch", PLEASE_VOUCH_ROLE),
+    ("Boostie (quote discount)", BOOSTIE_ROLE),
+    ("Reseller (quote discount)", RESELLER_ROLE),
 ]
 
-# Payment panel (string settings via /serverconfig payment …)
+# Payment panel (string settings via /config payment …)
 PAYMENT_GCASH_DETAILS = "payment_gcash_details"
 PAYMENT_PAYPAL_LINK = "payment_paypal_link"
 PAYMENT_KOFI_LINK = "payment_kofi_link"
@@ -73,3 +77,9 @@ PAYMENT_ALL_KEYS: tuple[str, ...] = (
     PAYMENT_GCASH_QR_URL,
     PAYMENT_PAYPAL_QR_URL,
 )
+
+# String settings (guild_string_settings)
+ORDER_ID_PREFIX = "order_id_prefix"
+
+# Integer settings (guild_settings) — warn threshold override; default 3 in code if unset
+WARN_THRESHOLD_KEY = "warn_threshold"

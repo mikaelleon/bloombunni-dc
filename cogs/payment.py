@@ -28,7 +28,7 @@ class PaymentView(discord.ui.View):
             await interaction.response.send_message(
                 embed=user_hint(
                     "Payment not set up yet",
-                    "Ask a manager to set **GCash** text and QR with **`/serverconfig payment`**.",
+                    "Ask a manager to set **GCash** text and QR with **`/config payment gcash_details`** (and QR URL).",
                 ),
                 ephemeral=True,
             )
@@ -50,7 +50,7 @@ class PaymentView(discord.ui.View):
             await interaction.response.send_message(
                 embed=user_hint(
                     "Payment not set up yet",
-                    "Ask a manager to set **PayPal** link and QR with **`/serverconfig payment`**.",
+                    "Ask a manager to set **PayPal** link and QR with **`/config payment`** commands.",
                 ),
                 ephemeral=True,
             )
@@ -95,12 +95,12 @@ class PaymentCog(commands.Cog, name="PaymentCog"):
     async def run_setup_payment(
         self, interaction: discord.Interaction, ch: discord.TextChannel
     ) -> None:
-        """Invoked from `/setup payment` with a resolved payment channel."""
+        """Invoked from `/deploy payment` with a resolved payment channel."""
         if not await is_payment_config_complete(interaction.guild.id):
             await interaction.response.send_message(
                 embed=user_hint(
                     "Finish payment settings first",
-                    "Run **`/serverconfig payment`** for GCash text/QR, PayPal link/QR, and Ko-fi (see **`/serverconfig show`**).",
+                    "Run **`/config payment`** subcommands for GCash text/QR, PayPal link/QR, and Ko-fi (see **`/config view`**).",
                 ),
                 ephemeral=True,
             )

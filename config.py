@@ -1,7 +1,7 @@
 """Load bot token from the environment.
 
 Everything else (channels, roles, payment text) is configured per server in Discord
-with `/serverconfig` and stored in SQLite.
+with `/setup`, `/config`, etc., and stored in SQLite.
 """
 
 from __future__ import annotations
