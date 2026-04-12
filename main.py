@@ -16,9 +16,10 @@ from cogs.queue import register_order_status_views
 from cogs.shop import TOSAgreeView
 from cogs.tickets import register_ticket_persistent_views
 from keep_alive import keep_alive
+from utils.logging_setup import get_logger, setup_logging
 
-logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("bot")
+setup_logging(logging.INFO)
+log = get_logger("core")
 
 INTENTS = discord.Intents.default()
 INTENTS.message_content = True
@@ -79,8 +80,27 @@ bot = MikaBot()
 
 
 @bot.event
+async def on_interaction(interaction: discord.Interaction) -> None:
+    """Log slash / component usage for support and auditing (INFO)."""
+    if interaction.type != discord.InteractionType.application_command:
+        return
+    if not interaction.command:
+        return
+    gid = interaction.guild.id if interaction.guild else None
+    cid = interaction.channel.id if interaction.channel else None
+    uid = interaction.user.id if interaction.user else None
+    log.info(
+        "cmd=%s guild_id=%s channel_id=%s user_id=%s",
+        interaction.command.qualified_name,
+        gid,
+        cid,
+        uid,
+    )
+
+
+@bot.event
 async def on_ready() -> None:
-    log.info("Logged in as %s (%s)", bot.user, round(bot.latency * 1000))
+    log.info("ready user=%s id=%s latency_ms=%s", bot.user, bot.user.id if bot.user else None, round(bot.latency * 1000))
     shop = bot.get_cog("ShopCog")
     if shop and hasattr(shop, "refresh_status_message"):
         await shop.refresh_status_message()
@@ -92,7 +112,7 @@ async def on_ready() -> None:
 @bot.tree.error
 async def on_app_error(interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
     from utils.checks import check_failure_response
-    from utils.embeds import error_embed
+    from utils.embeds import user_hint, user_warn
 
     orig = getattr(error, "original", error)
     if isinstance(error, app_commands.CommandInvokeError) and error.original:
@@ -101,11 +121,16 @@ async def on_app_error(interaction: discord.Interaction, error: app_commands.App
         await check_failure_response(interaction, orig)
         return
     if isinstance(error, CommandSignatureMismatch):
-        log.warning("Command signature mismatch (Discord cache vs bot): %s", error)
+        log.warning(
+            "command_signature_mismatch cmd=%s guild_id=%s: %s",
+            getattr(interaction.command, "qualified_name", None),
+            interaction.guild.id if interaction.guild else None,
+            error,
+        )
         msg = (
             "Discord still has an **older** version of this slash command than your bot code "
             "(often after adding options like `channel`).\n\n"
-            "**Fix:** Set **`SYNC_GUILD_ID`** in `.env` to this server’s ID (Developer Mode → "
+            "**Suggestion:** Set **`SYNC_GUILD_ID`** in `.env` to this server’s ID (Developer Mode → "
             "right‑click server → Copy Server ID), **restart the bot**, then run the command again. "
             "That pushes commands to this guild **immediately**.\n\n"
             "Otherwise wait up to ~1 hour for global command updates, or re-invite the bot after "
@@ -114,24 +139,39 @@ async def on_app_error(interaction: discord.Interaction, error: app_commands.App
         try:
             if interaction.response.is_done():
                 await interaction.followup.send(
-                    embed=error_embed("Slash command out of date", msg), ephemeral=True
+                    embed=user_hint("Slash commands still updating", msg), ephemeral=True
                 )
             else:
                 await interaction.response.send_message(
-                    embed=error_embed("Slash command out of date", msg), ephemeral=True
+                    embed=user_hint("Slash commands still updating", msg), ephemeral=True
                 )
         except discord.HTTPException:
             pass
         return
-    log.exception("App command error: %s", error)
+    log.exception(
+        "app_command_failed cmd=%s guild_id=%s user_id=%s",
+        getattr(interaction.command, "qualified_name", None),
+        interaction.guild.id if interaction.guild else None,
+        interaction.user.id if interaction.user else None,
+    )
     try:
         if interaction.response.is_done():
             await interaction.followup.send(
-                embed=error_embed("Error", "Something went wrong."), ephemeral=True
+                embed=user_warn(
+                    "That didn’t work",
+                    "Something went wrong on our side. Try again in a moment. "
+                    "If it keeps happening, tell a moderator and include what command you ran.",
+                ),
+                ephemeral=True,
             )
         else:
             await interaction.response.send_message(
-                embed=error_embed("Error", "Something went wrong."), ephemeral=True
+                embed=user_warn(
+                    "That didn’t work",
+                    "Something went wrong on our side. Try again in a moment. "
+                    "If it keeps happening, tell a moderator and include what command you ran.",
+                ),
+                ephemeral=True,
             )
     except discord.HTTPException:
         pass

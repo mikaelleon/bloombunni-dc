@@ -17,7 +17,7 @@ import guild_keys as gk
 from guild_config import get_category, get_role, get_text_channel
 from utils.channel_resolve import resolve_category, resolve_text_channel
 from utils.checks import is_staff
-from utils.embeds import PRIMARY, error_embed, info_embed, success_embed
+from utils.embeds import PRIMARY, info_embed, success_embed, user_hint, user_warn
 
 _SETUP_CH_ERR = (
     "Could not find that **text channel**. Use a channel mention (`<#id>`) or paste the "
@@ -175,7 +175,7 @@ class CloseTicketView(discord.ui.View):
         cog = interaction.client.get_cog("TicketsCog")
         if not isinstance(cog, TicketsCog):
             await interaction.response.send_message(
-                embed=error_embed("Error", "Tickets unavailable."), ephemeral=True
+                embed=user_warn("Tickets unavailable", "Try again in a moment."), ephemeral=True
             )
             return
         await cog.handle_close_button(interaction)
@@ -327,7 +327,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         staff_role = await get_role(interaction.guild, gk.STAFF_ROLE)
         if not cat or not staff_role:
             await interaction.response.send_message(
-                embed=error_embed(
+                embed=user_hint(
                     "Configuration required",
                     "Please run `/serverconfig` first to set your **ticket category** "
                     "and **staff role**.",
@@ -339,7 +339,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         ch = resolve_text_channel(interaction.guild, channel)
         if not ch:
             await interaction.response.send_message(
-                embed=error_embed("Invalid channel", _SETUP_CH_ERR), ephemeral=True
+                embed=user_hint("Invalid channel", _SETUP_CH_ERR), ephemeral=True
             )
             return
 
@@ -426,13 +426,13 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             return
         if await db.count_ticket_buttons(interaction.guild.id) >= 5:
             await interaction.response.send_message(
-                embed=error_embed("Limit", "Maximum 5 ticket buttons per server."),
+                embed=user_hint("Limit", "Maximum 5 ticket buttons per server."),
                 ephemeral=True,
             )
             return
         if await db.find_ticket_button_by_label(interaction.guild.id, label):
             await interaction.response.send_message(
-                embed=error_embed(
+                embed=user_hint(
                     "Duplicate",
                     "A button with that label already exists. Use `/ticketbutton remove` first.",
                 ),
@@ -451,7 +451,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             cat_ch = resolve_category(interaction.guild, category)
             if not cat_ch:
                 await interaction.response.send_message(
-                    embed=error_embed("Invalid category", "Could not resolve that category."),
+                    embed=user_hint("Invalid category", "Could not resolve that category."),
                     ephemeral=True,
                 )
                 return
@@ -476,7 +476,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         await interaction.response.defer(ephemeral=True)
         err = await self._refresh_panel_message(interaction.guild)
         if err:
-            await interaction.followup.send(embed=error_embed("Panel", err), ephemeral=True)
+            await interaction.followup.send(embed=user_hint("Panel", err), ephemeral=True)
             return
         rows = await db.list_ticket_buttons(interaction.guild.id)
         preview = ", ".join(f"**{r['label']}**" for r in rows) or "—"
@@ -496,14 +496,14 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         ok = await db.delete_ticket_button_by_label(interaction.guild.id, label)
         if not ok:
             await interaction.response.send_message(
-                embed=error_embed("Not found", "No button with that label."),
+                embed=user_hint("Not found", "No button with that label."),
                 ephemeral=True,
             )
             return
         await interaction.response.defer(ephemeral=True)
         err = await self._refresh_panel_message(interaction.guild)
         if err:
-            await interaction.followup.send(embed=error_embed("Panel", err), ephemeral=True)
+            await interaction.followup.send(embed=user_hint("Panel", err), ephemeral=True)
             return
         await interaction.followup.send(
             embed=success_embed("Removed", f"Removed **{label}** and refreshed the panel."),
@@ -553,7 +553,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         row = await db.find_ticket_button_by_label(interaction.guild.id, button)
         if not row:
             await interaction.response.send_message(
-                embed=error_embed("Not found", "No button with that label."),
+                embed=user_hint("Not found", "No button with that label."),
                 ephemeral=True,
             )
             return
@@ -561,14 +561,14 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             parsed = json.loads(fields)
         except json.JSONDecodeError:
             await interaction.response.send_message(
-                embed=error_embed("JSON", "Invalid JSON."),
+                embed=user_hint("JSON", "Invalid JSON."),
                 ephemeral=True,
             )
             return
         valid, err = _validate_form_fields(parsed)
         if valid is None:
             await interaction.response.send_message(
-                embed=error_embed("Validation", err or "Invalid fields."),
+                embed=user_hint("Validation", err or "Invalid fields."),
                 ephemeral=True,
             )
             return
@@ -590,7 +590,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         row = await db.find_ticket_button_by_label(interaction.guild.id, button)
         if not row:
             await interaction.response.send_message(
-                embed=error_embed("Not found", "No button with that label."),
+                embed=user_hint("Not found", "No button with that label."),
                 ephemeral=True,
             )
             return
@@ -609,7 +609,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         row = await db.find_ticket_button_by_label(interaction.guild.id, button)
         if not row:
             await interaction.response.send_message(
-                embed=error_embed("Not found", "No button with that label."),
+                embed=user_hint("Not found", "No button with that label."),
                 ephemeral=True,
             )
             return
@@ -640,14 +640,14 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         row = await db.find_ticket_button_by_label(interaction.guild.id, button)
         if not row:
             await interaction.response.send_message(
-                embed=error_embed("Not found", "No button with that label."),
+                embed=user_hint("Not found", "No button with that label."),
                 ephemeral=True,
             )
             return
         parsed, err = _parse_comma_select_options(options)
         if parsed is None:
             await interaction.response.send_message(
-                embed=error_embed("Options", err or "Invalid options."),
+                embed=user_hint("Options", err or "Invalid options."),
                 ephemeral=True,
             )
             return
@@ -674,7 +674,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         row = await db.find_ticket_button_by_label(interaction.guild.id, button)
         if not row:
             await interaction.response.send_message(
-                embed=error_embed("Not found", "No button with that label."),
+                embed=user_hint("Not found", "No button with that label."),
                 ephemeral=True,
             )
             return
@@ -699,14 +699,14 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         ch = resolve_text_channel(interaction.guild, channel)
         if not ch:
             await interaction.response.send_message(
-                embed=error_embed("Invalid channel", _SETUP_CH_ERR), ephemeral=True
+                embed=user_hint("Invalid channel", _SETUP_CH_ERR), ephemeral=True
             )
             return
         await db.set_guild_setting(interaction.guild.id, gk.TOS_CHANNEL, ch.id)
         shop = self.bot.get_cog("ShopCog")
         if not shop or not hasattr(shop, "run_setup_tos"):
             await interaction.response.send_message(
-                embed=error_embed("Error", "Shop cog unavailable."), ephemeral=True
+                embed=user_hint("Shop module unavailable", "Try again later or contact the bot owner."), ephemeral=True
             )
             return
         await shop.run_setup_tos(interaction, ch)
@@ -723,14 +723,14 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         ch = resolve_text_channel(interaction.guild, channel)
         if not ch:
             await interaction.response.send_message(
-                embed=error_embed("Invalid channel", _SETUP_CH_ERR), ephemeral=True
+                embed=user_hint("Invalid channel", _SETUP_CH_ERR), ephemeral=True
             )
             return
         await db.set_guild_setting(interaction.guild.id, gk.PAYMENT_CHANNEL, ch.id)
         pay = self.bot.get_cog("PaymentCog")
         if not pay or not hasattr(pay, "run_setup_payment"):
             await interaction.response.send_message(
-                embed=error_embed("Error", "Payment cog unavailable."), ephemeral=True
+                embed=user_hint("Payment module unavailable", "Try again later or contact the bot owner."), ephemeral=True
             )
             return
         await pay.run_setup_payment(interaction, ch)
@@ -818,14 +818,17 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
     async def handle_panel_button(self, interaction: discord.Interaction, button_id: str) -> None:
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
             await interaction.response.send_message(
-                embed=error_embed("Error", "Use this in the server."), ephemeral=True
+                embed=user_hint("Use this in a server", "Open this from inside the Discord server."), ephemeral=True
             )
             return
 
         row = await db.get_ticket_button_by_id(button_id)
         if not row or int(row["guild_id"]) != interaction.guild.id:
             await interaction.response.send_message(
-                embed=error_embed("Error", "This button is outdated. Ask staff to refresh `/ticketpanel`."),
+                embed=user_hint(
+                    "Button needs a refresh",
+                    "Ask staff to run **`/ticketpanel`** again so buttons stay in sync.",
+                ),
                 ephemeral=True,
             )
             return
@@ -834,12 +837,12 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         if tos_role is None or tos_role not in interaction.user.roles:
             tos_cid = await db.get_guild_setting(interaction.guild.id, gk.TOS_CHANNEL)
             hint = f"Please read and agree in <#{tos_cid}> first." if tos_cid else "Please agree to the TOS first."
-            await interaction.response.send_message(embed=error_embed("Terms required", hint), ephemeral=True)
+            await interaction.response.send_message(embed=user_warn("Terms required", hint), ephemeral=True)
             return
 
         if not await db.shop_is_open_db():
             await interaction.response.send_message(
-                embed=error_embed("Shop closed", "Commissions are closed right now."),
+                embed=user_warn("Shop is closed", "Commissions are closed right now — check back when staff reopen."),
                 ephemeral=True,
             )
             return
@@ -881,7 +884,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         row = await db.get_ticket_button_by_id(button_id)
         if not row:
             await interaction.followup.send(
-                embed=error_embed("Error", "Button configuration missing."), ephemeral=True
+                embed=user_hint("Configuration missing", "That ticket type isn’t set up anymore. Ask staff to check `/ticketbutton`."), ephemeral=True
             )
             return
 
@@ -894,7 +897,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             category = await get_category(interaction.guild, gk.TICKET_CATEGORY)
         if not category:
             await interaction.followup.send(
-                embed=error_embed("Config", "Ticket category missing. Set `/serverconfig category`."),
+                embed=user_hint("Config", "Ticket category missing. Set `/serverconfig category`."),
                 ephemeral=True,
             )
             return
@@ -902,7 +905,9 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         staff_role = await get_role(interaction.guild, gk.STAFF_ROLE)
         member = interaction.user
         if not isinstance(member, discord.Member):
-            await interaction.followup.send(embed=error_embed("Error", "Invalid member."), ephemeral=True)
+            await interaction.followup.send(
+                embed=user_hint("Couldn’t verify member", "Try the command again from the server."), ephemeral=True
+            )
             return
 
         overwrites: dict[discord.abc.Snowflake, discord.PermissionOverwrite] = {
@@ -935,13 +940,16 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             )
         except discord.Forbidden:
             await interaction.followup.send(
-                embed=error_embed("Error", "Missing permission to create channels."),
+                embed=user_warn(
+                    "Missing permissions",
+                    "The bot needs permission to **manage channels** in that category. Ask an admin to adjust role/channel settings.",
+                ),
                 ephemeral=True,
             )
             return
         except discord.HTTPException:
             await interaction.followup.send(
-                embed=error_embed("Error", "Could not create ticket channel."),
+                embed=user_warn("Couldn’t create channel", "Discord blocked channel creation — try again or ask an admin to check limits and permissions."),
                 ephemeral=True,
             )
             return
@@ -986,13 +994,13 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
     async def _run_close(self, interaction: discord.Interaction) -> None:
         if not interaction.guild or not isinstance(interaction.channel, discord.TextChannel):
             await interaction.response.send_message(
-                embed=error_embed("Error", "Use this inside a ticket channel."), ephemeral=True
+                embed=user_hint("Wrong channel", "Use this inside an open ticket channel."), ephemeral=True
             )
             return
         ticket = await db.get_ticket_by_channel(interaction.channel.id)
         if not ticket:
             await interaction.response.send_message(
-                embed=error_embed("Error", "Not a ticket channel."), ephemeral=True
+                embed=user_hint("Not a ticket", "This channel isn’t linked to an open ticket."), ephemeral=True
             )
             return
         staff_role = await get_role(interaction.guild, gk.STAFF_ROLE)
@@ -1004,7 +1012,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         is_owner = interaction.user.id == int(ticket["client_id"])
         if not is_staff_u and not is_owner:
             await interaction.response.send_message(
-                embed=error_embed("Error", "Only staff or the ticket owner can close."),
+                embed=user_warn("Can’t close this", "Only **staff** or the **ticket owner** can close it."),
                 ephemeral=True,
             )
             return
@@ -1017,7 +1025,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             file = await generate_transcript(interaction.channel)
         except Exception:
             await interaction.followup.send(
-                embed=error_embed("Error", "Could not build transcript."), ephemeral=True
+                embed=user_warn("Transcript issue", "Couldn’t build the transcript file. Ask an admin to check bot permissions in this channel."),
             )
             return
 
@@ -1062,7 +1070,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             )
         else:
             await interaction.followup.send(
-                embed=error_embed(
+                embed=user_hint(
                     "DM failed",
                     "Transcript was posted to the transcript channel only.",
                 ),

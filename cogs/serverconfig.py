@@ -10,7 +10,7 @@ import database as db
 import guild_keys as gk
 from utils.channel_resolve import resolve_category, resolve_text_channel
 from utils.checks import can_manage_server_config
-from utils.embeds import error_embed, info_embed, success_embed
+from utils.embeds import info_embed, success_embed, user_hint
 from utils.paged_embeds import PagedEmbedView
 
 
@@ -257,7 +257,7 @@ class ServerConfigCog(commands.Cog, name="ServerConfigCog"):
         ch = resolve_text_channel(interaction.guild, channel)
         if not ch:
             await interaction.response.send_message(
-                embed=error_embed("Invalid channel", _ERR_BAD_TEXT_CH),
+                embed=user_hint("Invalid channel", _ERR_BAD_TEXT_CH),
                 ephemeral=True,
             )
             return
@@ -294,7 +294,7 @@ class ServerConfigCog(commands.Cog, name="ServerConfigCog"):
         cat = resolve_category(interaction.guild, category)
         if not cat:
             await interaction.response.send_message(
-                embed=error_embed("Invalid category", _ERR_BAD_CAT),
+                embed=user_hint("Invalid category", _ERR_BAD_CAT),
                 ephemeral=True,
             )
             return
@@ -358,7 +358,7 @@ class ServerConfigCog(commands.Cog, name="ServerConfigCog"):
         t = text.strip()
         if len(t) > 4000:
             await interaction.response.send_message(
-                embed=error_embed("Too long", "Keep GCash text at or under 4000 characters."),
+                embed=user_hint("Too long", "Keep GCash text at or under 4000 characters."),
                 ephemeral=True,
             )
             return
@@ -374,7 +374,7 @@ class ServerConfigCog(commands.Cog, name="ServerConfigCog"):
     async def payment_paypal_link(self, interaction: discord.Interaction, url: str) -> None:
         if not _is_http_url(url):
             await interaction.response.send_message(
-                embed=error_embed("Invalid URL", "Use a link starting with `http://` or `https://`."),
+                embed=user_hint("Invalid URL", "Use a link starting with `http://` or `https://`."),
                 ephemeral=True,
             )
             return
@@ -392,7 +392,7 @@ class ServerConfigCog(commands.Cog, name="ServerConfigCog"):
     async def payment_kofi_link(self, interaction: discord.Interaction, url: str) -> None:
         if not _is_http_url(url):
             await interaction.response.send_message(
-                embed=error_embed("Invalid URL", "Use a link starting with `http://` or `https://`."),
+                embed=user_hint("Invalid URL", "Use a link starting with `http://` or `https://`."),
                 ephemeral=True,
             )
             return
@@ -413,7 +413,7 @@ class ServerConfigCog(commands.Cog, name="ServerConfigCog"):
     async def payment_gcash_qr(self, interaction: discord.Interaction, url: str) -> None:
         if not _is_http_url(url):
             await interaction.response.send_message(
-                embed=error_embed("Invalid URL", "Use a link starting with `http://` or `https://`."),
+                embed=user_hint("Invalid URL", "Use a link starting with `http://` or `https://`."),
                 ephemeral=True,
             )
             return
@@ -434,7 +434,7 @@ class ServerConfigCog(commands.Cog, name="ServerConfigCog"):
     async def payment_paypal_qr(self, interaction: discord.Interaction, url: str) -> None:
         if not _is_http_url(url):
             await interaction.response.send_message(
-                embed=error_embed("Invalid URL", "Use a link starting with `http://` or `https://`."),
+                embed=user_hint("Invalid URL", "Use a link starting with `http://` or `https://`."),
                 ephemeral=True,
             )
             return

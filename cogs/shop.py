@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import logging
-
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -13,9 +11,10 @@ import database as db
 from guild_config import get_role, get_text_channel
 import guild_keys as gk
 from utils.checks import is_staff
-from utils.embeds import DANGER, SUCCESS, error_embed, info_embed, success_embed
+from utils.embeds import DANGER, SUCCESS, info_embed, success_embed, user_hint, user_warn
+from utils.logging_setup import get_logger
 
-log = logging.getLogger("bot.shop")
+log = get_logger("shop")
 
 
 class TOSAgreeView(discord.ui.View):
@@ -30,13 +29,13 @@ class TOSAgreeView(discord.ui.View):
     async def agree(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
             await interaction.response.send_message(
-                embed=error_embed("Error", "Use this in the server."), ephemeral=True
+                embed=user_hint("Use this in a server", "Open the TOS panel from inside your Discord server."), ephemeral=True
             )
             return
         role = await get_role(interaction.guild, gk.TOS_AGREED_ROLE)
         if role is None:
             await interaction.response.send_message(
-                embed=error_embed("Error", "TOS role not configured."), ephemeral=True
+                embed=user_hint("TOS role not set", "Ask an admin to map **TOS agreed role** in **`/serverconfig role`**."), ephemeral=True
             )
             return
         if role in interaction.user.roles:
@@ -46,7 +45,7 @@ class TOSAgreeView(discord.ui.View):
             await interaction.user.add_roles(role, reason="TOS agreement")
         except discord.Forbidden:
             await interaction.response.send_message(
-                embed=error_embed("Error", "I cannot assign the role."), ephemeral=True
+                embed=user_warn("Can’t assign role", "The bot needs **Manage Roles** above the TOS role, or the role is managed elsewhere."), ephemeral=True
             )
             return
         await db.log_tos_agreement(interaction.user.id)
@@ -136,7 +135,7 @@ class ShopCog(commands.Cog, name="ShopCog"):
         await interaction.response.defer(ephemeral=True)
         if not interaction.guild:
             await interaction.followup.send(
-                embed=error_embed("Error", "Use this command in a server."),
+                embed=user_hint("Use this in a server", "Run shop commands from inside your Discord server."),
                 ephemeral=True,
             )
             return
@@ -162,15 +161,15 @@ class ShopCog(commands.Cog, name="ShopCog"):
         except discord.HTTPException as e:
             detail = (getattr(e, "text", None) or str(e))[:200]
             await interaction.followup.send(
-                embed=error_embed("Shop", f"Discord API error: {detail}"),
+                embed=user_warn("Couldn’t update status", f"Discord returned: {detail}\nCheck bot permissions and try again."),
                 ephemeral=True,
             )
         except Exception:
             log.exception("shop_open failed")
             await interaction.followup.send(
-                embed=error_embed(
-                    "Shop",
-                    "Something went wrong while opening the shop. Check bot permissions and `/serverconfig`.",
+                embed=user_warn(
+                    "Couldn’t open shop",
+                    "Something went wrong — check bot permissions and **`/serverconfig`** mappings.",
                 ),
                 ephemeral=True,
             )
@@ -181,7 +180,7 @@ class ShopCog(commands.Cog, name="ShopCog"):
         await interaction.response.defer(ephemeral=True)
         if not interaction.guild:
             await interaction.followup.send(
-                embed=error_embed("Error", "Use this command in a server."),
+                embed=user_hint("Use this in a server", "Run shop commands from inside your Discord server."),
                 ephemeral=True,
             )
             return
@@ -206,15 +205,15 @@ class ShopCog(commands.Cog, name="ShopCog"):
         except discord.HTTPException as e:
             detail = (getattr(e, "text", None) or str(e))[:200]
             await interaction.followup.send(
-                embed=error_embed("Shop", f"Discord API error: {detail}"),
+                embed=user_warn("Couldn’t update status", f"Discord returned: {detail}\nCheck bot permissions and try again."),
                 ephemeral=True,
             )
         except Exception:
             log.exception("shop_close failed")
             await interaction.followup.send(
-                embed=error_embed(
-                    "Shop",
-                    "Something went wrong while closing the shop. Check bot permissions and `/serverconfig`.",
+                embed=user_warn(
+                    "Couldn’t close shop",
+                    "Something went wrong — check bot permissions and **`/serverconfig`** mappings.",
                 ),
                 ephemeral=True,
             )

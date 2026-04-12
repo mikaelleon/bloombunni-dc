@@ -9,7 +9,7 @@ from discord.ext import commands
 import database as db
 import guild_keys as gk
 from utils.checks import is_staff
-from utils.embeds import PRIMARY, error_embed, info_embed, success_embed
+from utils.embeds import PRIMARY, info_embed, success_embed, user_warn
 
 
 class DropLinkView(discord.ui.View):
@@ -72,9 +72,9 @@ class DropCog(commands.Cog, name="DropCog"):
             await member.send(embed=emb, view=view)
         except discord.Forbidden:
             await interaction.followup.send(
-                embed=error_embed(
+                embed=user_warn(
                     "DM blocked",
-                    "Could not DM this user. Deliver the link manually and ask them to fix privacy settings.",
+                    "Couldn’t DM this user. Deliver the link manually and ask them to allow DMs from server members.",
                 ),
                 ephemeral=True,
             )

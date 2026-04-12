@@ -7,7 +7,7 @@ from discord import app_commands
 
 import database as db
 import guild_keys as gk
-from utils.embeds import error_embed
+from utils.embeds import user_warn
 
 
 def is_staff():
@@ -77,10 +77,10 @@ def can_manage_server_config():
 
 
 async def check_failure_response(interaction, error: Exception) -> None:
-    """Send ephemeral error embed for CheckFailure."""
+    """Send ephemeral embed for CheckFailure (friendly warning tone)."""
     if isinstance(error, app_commands.CheckFailure):
         msg = str(error) or "You cannot use this command right now."
-        emb = error_embed("Permission denied", msg)
+        emb = user_warn("Heads up", msg)
         if interaction.response.is_done():
             await interaction.followup.send(embed=emb, ephemeral=True)
         else:

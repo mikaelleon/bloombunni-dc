@@ -8,7 +8,7 @@ from discord.ext import commands
 import database as db
 import guild_keys as gk
 from guild_config import is_payment_config_complete
-from utils.embeds import PRIMARY, error_embed, success_embed
+from utils.embeds import PRIMARY, success_embed, user_hint
 
 
 class PaymentView(discord.ui.View):
@@ -19,16 +19,16 @@ class PaymentView(discord.ui.View):
     async def gcash(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if not interaction.guild:
             await interaction.response.send_message(
-                embed=error_embed("Error", "Use this in a server."), ephemeral=True
+                embed=user_hint("Use this in a server", "Open the payment panel from inside your Discord server."), ephemeral=True
             )
             return
         details = await db.get_guild_string_setting(interaction.guild.id, gk.PAYMENT_GCASH_DETAILS)
         qr = await db.get_guild_string_setting(interaction.guild.id, gk.PAYMENT_GCASH_QR_URL)
         if not details or not qr:
             await interaction.response.send_message(
-                embed=error_embed(
-                    "Not configured",
-                    "Ask a manager to set **GCash** text and QR with `/serverconfig payment`.",
+                embed=user_hint(
+                    "Payment not set up yet",
+                    "Ask a manager to set **GCash** text and QR with **`/serverconfig payment`**.",
                 ),
                 ephemeral=True,
             )
@@ -41,16 +41,16 @@ class PaymentView(discord.ui.View):
     async def paypal(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if not interaction.guild:
             await interaction.response.send_message(
-                embed=error_embed("Error", "Use this in a server."), ephemeral=True
+                embed=user_hint("Use this in a server", "Open the payment panel from inside your Discord server."), ephemeral=True
             )
             return
         link = await db.get_guild_string_setting(interaction.guild.id, gk.PAYMENT_PAYPAL_LINK)
         qr = await db.get_guild_string_setting(interaction.guild.id, gk.PAYMENT_PAYPAL_QR_URL)
         if not link or not qr:
             await interaction.response.send_message(
-                embed=error_embed(
-                    "Not configured",
-                    "Ask a manager to set **PayPal** link and QR with `/serverconfig payment`.",
+                embed=user_hint(
+                    "Payment not set up yet",
+                    "Ask a manager to set **PayPal** link and QR with **`/serverconfig payment`**.",
                 ),
                 ephemeral=True,
             )
@@ -67,15 +67,15 @@ class PaymentView(discord.ui.View):
     async def kofi(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if not interaction.guild:
             await interaction.response.send_message(
-                embed=error_embed("Error", "Use this in a server."), ephemeral=True
+                embed=user_hint("Use this in a server", "Open the payment panel from inside your Discord server."), ephemeral=True
             )
             return
         link = await db.get_guild_string_setting(interaction.guild.id, gk.PAYMENT_KOFI_LINK)
         if not link:
             await interaction.response.send_message(
-                embed=error_embed(
-                    "Not configured",
-                    "Ask a manager to set **Ko-fi** link with `/serverconfig payment kofi_link`.",
+                embed=user_hint(
+                    "Payment not set up yet",
+                    "Ask a manager to set **Ko-fi** link with **`/serverconfig payment kofi_link`**.",
                 ),
                 ephemeral=True,
             )
@@ -98,10 +98,9 @@ class PaymentCog(commands.Cog, name="PaymentCog"):
         """Invoked from `/setup payment` with a resolved payment channel."""
         if not await is_payment_config_complete(interaction.guild.id):
             await interaction.response.send_message(
-                embed=error_embed(
-                    "Payment not configured",
-                    "Run all of `/serverconfig payment gcash_details`, `paypal_link`, `kofi_link`, "
-                    "`gcash_qr`, `paypal_qr` (see `/serverconfig show`).",
+                embed=user_hint(
+                    "Finish payment settings first",
+                    "Run **`/serverconfig payment`** for GCash text/QR, PayPal link/QR, and Ko-fi (see **`/serverconfig show`**).",
                 ),
                 ephemeral=True,
             )

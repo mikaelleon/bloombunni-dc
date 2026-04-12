@@ -9,7 +9,7 @@ from discord.ext import commands
 import database as db
 import guild_keys as gk
 from utils.checks import is_staff
-from utils.embeds import PRIMARY, error_embed, info_embed, success_embed
+from utils.embeds import PRIMARY, info_embed, success_embed
 
 
 class VouchPages(discord.ui.View):

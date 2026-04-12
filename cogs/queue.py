@@ -14,7 +14,7 @@ import database as db
 import guild_keys as gk
 from guild_config import ticket_category_ids
 from utils.checks import is_staff
-from utils.embeds import PRIMARY, error_embed, info_embed, queue_embed, success_embed
+from utils.embeds import PRIMARY, info_embed, queue_embed, success_embed, user_hint, user_warn
 
 LOYALTY_MILESTONES: dict[int, str] = {
     5: "10% discount on next order",
@@ -157,7 +157,7 @@ class OrderStatusView(discord.ui.View):
     async def _on_select(self, interaction: discord.Interaction) -> None:
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
             await interaction.response.send_message(
-                embed=error_embed("Error", "Use this in the server."), ephemeral=True
+                embed=user_hint("Use this in a server", "The status menu only works inside your Discord server."), ephemeral=True
             )
             return
         staff_rid = await db.get_guild_setting(interaction.guild.id, gk.STAFF_ROLE)
@@ -168,14 +168,14 @@ class OrderStatusView(discord.ui.View):
         )
         if not staff or staff not in interaction.user.roles:
             await interaction.response.send_message(
-                embed=error_embed("Staff only", "You cannot use this menu."), ephemeral=True
+                embed=user_warn("Staff only", "This menu is for staff — pick a status option only if you’re handling the order."), ephemeral=True
             )
             return
 
         cog = interaction.client.get_cog("QueueCog")
         if not isinstance(cog, QueueCog):
             await interaction.response.send_message(
-                embed=error_embed("Error", "Queue unavailable."), ephemeral=True
+                embed=user_warn("Queue unavailable", "The queue module isn’t loaded — try again after a restart or contact the bot owner."), ephemeral=True
             )
             return
 
@@ -257,7 +257,7 @@ class QueueCog(commands.Cog, name="QueueCog"):
         order = await db.get_order(order_id)
         if not order or order.get("status") != "Noted":
             await interaction.followup.send(
-                embed=error_embed("Error", "Invalid order state for Processing."), ephemeral=True
+                embed=user_hint("Can’t set Processing", "This order isn’t in **Noted** state anymore — refresh the queue message or check the ticket."), ephemeral=True
             )
             return
         guild = interaction.guild
@@ -267,9 +267,9 @@ class QueueCog(commands.Cog, name="QueueCog"):
         vcid = await db.get_guild_setting(guild.id, gk.VOUCHES_CHANNEL)
         if not qcid or not vcid:
             await interaction.followup.send(
-                embed=error_embed(
-                    "Config",
-                    "Queue or vouches channel not set. Use `/serverconfig channel`.",
+                embed=user_hint(
+                    "Channels not configured",
+                    "Set **Queue** and **Vouches** under **`/serverconfig channel`** first.",
                 ),
                 ephemeral=True,
             )
@@ -341,7 +341,7 @@ class QueueCog(commands.Cog, name="QueueCog"):
         order = await db.get_order(order_id)
         if not order or order.get("status") not in ("Noted", "Processing"):
             await interaction.followup.send(
-                embed=error_embed("Error", "Invalid order state for Completed."), ephemeral=True
+                embed=user_hint("Can’t set Completed", "This order must be **Noted** or **Processing** first — refresh if it already moved."), ephemeral=True
             )
             return
         guild = interaction.guild
@@ -351,7 +351,7 @@ class QueueCog(commands.Cog, name="QueueCog"):
         vcid = await db.get_guild_setting(guild.id, gk.VOUCHES_CHANNEL)
         if not qcid or not vcid:
             await interaction.followup.send(
-                embed=error_embed("Config", "Queue or vouches channel not set."),
+                embed=user_hint("Channels not configured", "Set **Queue** and **Vouches** under **`/serverconfig channel`**."),
                 ephemeral=True,
             )
             return
@@ -472,7 +472,7 @@ class QueueCog(commands.Cog, name="QueueCog"):
         valid_cats = await ticket_category_ids(interaction.guild.id)
         if not valid_cats or channel.category_id not in valid_cats:
             await interaction.followup.send(
-                embed=error_embed("Channel", "Pick a valid ticket channel."), ephemeral=True
+                embed=user_hint("Wrong channel", "Pick a channel under your configured **ticket** categories."), ephemeral=True
             )
             return
 
@@ -523,9 +523,9 @@ class QueueCog(commands.Cog, name="QueueCog"):
         vcid = await db.get_guild_setting(guild.id, gk.VOUCHES_CHANNEL)
         if not qcid or not vcid:
             await interaction.followup.send(
-                embed=error_embed(
-                    "Config",
-                    "Set **Queue** and **Vouches** channels with `/serverconfig channel` first.",
+                embed=user_hint(
+                    "Channels not configured",
+                    "Set **Queue** and **Vouches** with **`/serverconfig channel`** first.",
                 ),
                 ephemeral=True,
             )
@@ -545,7 +545,7 @@ class QueueCog(commands.Cog, name="QueueCog"):
 
         if not qmid:
             await interaction.followup.send(
-                embed=error_embed("Queue channel", "Could not post to the queue channel."),
+                embed=user_warn("Queue channel issue", "Couldn’t post to the queue channel — check bot **Send Messages** there or pick another channel in **`/serverconfig`**."),
                 ephemeral=True,
             )
             return
@@ -634,7 +634,7 @@ class QueueCog(commands.Cog, name="QueueCog"):
     ) -> None:
         if key not in TEMPLATE_KEYS:
             await interaction.response.send_message(
-                embed=error_embed("Invalid key", f"Must be one of: {', '.join(sorted(TEMPLATE_KEYS))}"),
+                embed=user_hint("Unknown template key", f"Use one of: {', '.join(sorted(TEMPLATE_KEYS))}"),
                 ephemeral=True,
             )
             return
@@ -655,7 +655,7 @@ class QueueCog(commands.Cog, name="QueueCog"):
     async def viewtemplate(self, interaction: discord.Interaction, key: str) -> None:
         if key not in TEMPLATE_KEYS:
             await interaction.response.send_message(
-                embed=error_embed("Invalid key", "Unknown template key."), ephemeral=True
+                embed=user_hint("Unknown template key", "Run **`/listtemplates`** for valid keys."), ephemeral=True
             )
             return
         await interaction.response.defer(ephemeral=True)

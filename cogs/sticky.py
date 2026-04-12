@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import Any
 
 import discord
@@ -12,9 +11,10 @@ from discord.ext import commands
 
 import database as db
 from utils.checks import is_staff
-from utils.embeds import DEFAULT_EMBED_COLOR, PRIMARY, error_embed, info_embed, success_embed
+from utils.embeds import DEFAULT_EMBED_COLOR, PRIMARY, info_embed, user_hint, user_warn
+from utils.logging_setup import get_logger
 
-log = logging.getLogger("bot")
+log = get_logger("sticky")
 
 DEFAULT_STICKY_COLOR = DEFAULT_EMBED_COLOR
 
@@ -175,9 +175,9 @@ class StickyCog(commands.Cog, name="StickyCog"):
                 color = "#242429"
         except ValueError:
             await interaction.response.send_message(
-                embed=error_embed(
+                embed=user_hint(
                     "Invalid color",
-                    "Invalid hex color. Use format: `#RRGGBB` (e.g. `#242429`).",
+                    "Use a hex color like **`#RRGGBB`** (example: `#242429`).",
                 ),
                 ephemeral=True,
             )
@@ -187,7 +187,7 @@ class StickyCog(commands.Cog, name="StickyCog"):
             thumbnail_url = _validate_http_url(thumbnail_url, "Thumbnail URL")
         except ValueError as e:
             await interaction.response.send_message(
-                embed=error_embed("Invalid URL", str(e)), ephemeral=True
+                embed=user_hint("Invalid URL", str(e)), ephemeral=True
             )
             return
 
@@ -210,9 +210,9 @@ class StickyCog(commands.Cog, name="StickyCog"):
             msg = await channel.send(embed=emb)
         except discord.Forbidden:
             await interaction.followup.send(
-                embed=error_embed(
-                    "Permissions",
-                    "I cannot send messages in that channel.",
+                embed=user_warn(
+                    "Missing permissions",
+                    "The bot can’t send messages in that channel — adjust channel overrides or pick another channel.",
                 ),
                 ephemeral=True,
             )
@@ -252,9 +252,9 @@ class StickyCog(commands.Cog, name="StickyCog"):
         before = await db.get_sticky(channel.id)
         if not before:
             await interaction.response.send_message(
-                embed=error_embed(
-                    "No sticky",
-                    "No sticky message found for that channel. Use `/sticky` first.",
+                embed=user_hint(
+                    "No sticky here yet",
+                    "Create one with **`/sticky`** in that channel first.",
                 ),
                 ephemeral=True,
             )
@@ -264,9 +264,9 @@ class StickyCog(commands.Cog, name="StickyCog"):
         updatable = provided - {"channel"}
         if not updatable:
             await interaction.response.send_message(
-                embed=error_embed(
-                    "Nothing to update",
-                    "Provide at least one field to change (title, description, color, …).",
+                embed=user_hint(
+                    "Nothing to change",
+                    "Add at least one field to update (title, description, color, …).",
                 ),
                 ephemeral=True,
             )
@@ -277,9 +277,9 @@ class StickyCog(commands.Cog, name="StickyCog"):
                 _parse_hex_color(color)
             except ValueError:
                 await interaction.response.send_message(
-                    embed=error_embed(
+                    embed=user_hint(
                         "Invalid color",
-                        "Invalid hex color. Use format: `#RRGGBB`.",
+                        "Use a hex color like **`#RRGGBB`**.",
                     ),
                     ephemeral=True,
                 )
@@ -291,7 +291,7 @@ class StickyCog(commands.Cog, name="StickyCog"):
                 thumbnail_url = _validate_http_url(thumbnail_url, "Thumbnail URL")
         except ValueError as e:
             await interaction.response.send_message(
-                embed=error_embed("Invalid URL", str(e)), ephemeral=True
+                embed=user_hint("Invalid URL", str(e)), ephemeral=True
             )
             return
 
@@ -314,7 +314,7 @@ class StickyCog(commands.Cog, name="StickyCog"):
         ok = await db.patch_sticky(channel.id, kw)
         if not ok:
             await interaction.followup.send(
-                embed=error_embed("Error", "Could not update sticky."), ephemeral=True
+                embed=user_warn("Couldn’t save changes", "The database update failed — try again or check bot/database access."), ephemeral=True
             )
             return
 
@@ -337,7 +337,7 @@ class StickyCog(commands.Cog, name="StickyCog"):
             new_msg = await channel.send(embed=emb_after)
         except discord.Forbidden:
             await interaction.followup.send(
-                embed=error_embed("Permissions", "Cannot post in that channel."),
+                embed=user_warn("Missing permissions", "The bot can’t post in that channel after the update."),
                 ephemeral=True,
             )
             return
@@ -365,9 +365,9 @@ class StickyCog(commands.Cog, name="StickyCog"):
         row = await db.get_sticky(channel.id)
         if not row:
             await interaction.response.send_message(
-                embed=error_embed(
-                    "No sticky",
-                    "No sticky message found for that channel.",
+                embed=user_hint(
+                    "No sticky here",
+                    "There’s no sticky configured for that channel.",
                 ),
                 ephemeral=True,
             )
@@ -434,9 +434,9 @@ class StickyCog(commands.Cog, name="StickyCog"):
         row = await db.get_sticky(channel.id)
         if not row:
             await interaction.response.send_message(
-                embed=error_embed(
-                    "No sticky",
-                    "No sticky message found for that channel.",
+                embed=user_hint(
+                    "No sticky here",
+                    "There’s no sticky configured for that channel.",
                 ),
                 ephemeral=True,
             )

@@ -10,7 +10,7 @@ import database as db
 import guild_keys as gk
 from guild_config import get_text_channel
 from utils.checks import is_staff
-from utils.embeds import DEFAULT_EMBED_COLOR, PRIMARY, error_embed, info_embed, success_embed, warning_embed
+from utils.embeds import DEFAULT_EMBED_COLOR, PRIMARY, info_embed, success_embed, user_hint, user_warn, warning_embed
 
 WARN_THRESHOLD = 3
 
@@ -73,7 +73,7 @@ class WarnCog(commands.Cog, name="WarnCog"):
     ) -> None:
         if not interaction.guild or interaction.channel is None:
             await interaction.response.send_message(
-                embed=error_embed("Error", "Use this command in a server."), ephemeral=True
+                embed=user_hint("Use this in a server", "Run **`/warn`** from a channel in your Discord server."), ephemeral=True
             )
             return
 
@@ -125,7 +125,7 @@ class WarnCog(commands.Cog, name="WarnCog"):
                 await user.ban(reason="3 warns reached", delete_message_days=0)
             except discord.Forbidden:
                 await interaction.followup.send(
-                    embed=error_embed("Ban failed", "Could not ban user."), ephemeral=True
+                    embed=user_warn("Couldn’t ban", "The bot needs **Ban Members** (and the member must be bannable)."), ephemeral=True
                 )
                 return
             if log_ch:
@@ -165,7 +165,7 @@ class WarnCog(commands.Cog, name="WarnCog"):
         ok = await db.delete_warn(warn_id)
         if not ok:
             await interaction.response.send_message(
-                embed=error_embed("Error", "Warn not found."), ephemeral=True
+                embed=user_hint("Warn not found", "Check the ID with **`/warns`** — it may have been removed already."), ephemeral=True
             )
             return
         await interaction.response.send_message(
