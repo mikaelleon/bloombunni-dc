@@ -14,7 +14,7 @@ import database as db
 from cogs.payment import PaymentView
 from cogs.queue import register_order_status_views
 from cogs.shop import TOSAgreeView
-from cogs.tickets import CloseTicketView, TicketOpenView
+from cogs.tickets import register_ticket_persistent_views
 from keep_alive import keep_alive
 
 logging.basicConfig(level=logging.INFO)
@@ -68,11 +68,10 @@ class MikaBot(commands.Bot):
                     "Guild slash sync failed (is the bot in that server and is SYNC_GUILD_ID correct?)"
                 )
 
-        self.add_view(TicketOpenView())
-        self.add_view(CloseTicketView())
         self.add_view(TOSAgreeView())
         self.add_view(PaymentView())
 
+        await register_ticket_persistent_views(self)
         await register_order_status_views(self)
 
 

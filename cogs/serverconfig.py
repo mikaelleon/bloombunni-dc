@@ -135,7 +135,7 @@ def _guide_setup_embed() -> discord.Embed:
         "Each command requires a **channel** (mention or ID) where the panel should appear. "
         "The bot saves the matching **`/serverconfig channel`** slot at the same time "
         "(Start Here, TOS, or Payment).\n\n"
-        "• **`/setup tickets`** — Ticket open button (needs categories + roles configured).\n"
+        "• **`/ticketpanel`** + **`/ticketbutton`** — Configurable ticket panel with forms.\n"
         "• **`/setup tos`** — Terms of Service message and agree button.\n"
         "• **`/setup payment`** — GCash / PayPal / Ko-fi buttons (needs payment strings set).\n\n"
         "After deploying, use **`/serverconfig show`** to verify everything."
