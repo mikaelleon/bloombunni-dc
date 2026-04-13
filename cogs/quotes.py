@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -13,67 +14,18 @@ import database as db
 import guild_keys as gk
 from utils.checks import is_staff
 from utils.embeds import PRIMARY, info_embed, success_embed, user_hint, user_warn
-from utils.forex import fetch_php_rates
 from utils.logging_setup import get_logger
+from utils.quote_compute import (
+    BG_OPTIONS,
+    CHAR_OPTIONS,
+    COMMISSION_TYPES,
+    RENDERING_TIERS,
+    build_quote_embed,
+    compute_quote_totals,
+    fmt_php,
+)
 
 log = get_logger("quotes")
-
-COMMISSION_TYPES: tuple[str, ...] = (
-    "Chibi",
-    "Chibi Fullbody",
-    "Bust",
-    "Fullbody",
-    "Other",
-)
-RENDERING_TIERS: tuple[str, ...] = (
-    "Sketch",
-    "Flat Color",
-    "Shaded",
-    "Fully Rendered",
-)
-CHAR_OPTIONS: tuple[str, ...] = ("1", "2", "3", "4+")
-BG_OPTIONS: tuple[str, ...] = ("None", "Simple", "Detailed")
-
-
-def _char_count(key: str) -> int:
-    if key == "4+":
-        return 4
-    try:
-        return max(1, int(key))
-    except ValueError:
-        return 1
-
-
-def _fmt_php(n: float | int) -> str:
-    v = float(n)
-    if abs(v - round(v)) < 0.01:
-        return f"₱{int(round(v)):,}"
-    return f"₱{v:,.2f}"
-
-
-def _currency_symbol(code: str) -> str:
-    return {"USD": "$", "EUR": "€", "GBP": "£", "SGD": "S$", "MYR": "RM"}.get(code, "$")
-
-
-async def discount_percent_for_member(
-    guild: discord.Guild, member: discord.Member
-) -> tuple[float, list[str]]:
-    best = 0.0
-    notes: list[str] = []
-    for key, label in (("boostie", "Boostie"), ("reseller", "Reseller")):
-        row = await db.get_quote_discount(guild.id, key)
-        if not row:
-            continue
-        rid = row.get("role_id")
-        pct = float(row.get("percent") or 0)
-        if not rid or pct <= 0:
-            continue
-        role = guild.get_role(int(rid))
-        if role and role in member.roles:
-            notes.append(f"{label} ({pct:g}%)")
-            if pct > best:
-                best = pct
-    return best, notes
 
 
 @dataclass
@@ -120,7 +72,7 @@ class QuoteFlowView(discord.ui.View):
                 )
                 return
             await interaction.response.edit_message(
-                embed=info_embed("Quote — step 2/4", "Pick your **rendering tier**."),
+                embed=info_embed("Quote — step 2/5", "Pick your **rendering tier**."),
                 view=QuoteTierView(self.cog, subj, str(v)),
             )
 
@@ -145,7 +97,7 @@ class QuoteTierView(discord.ui.View):
         async def cb(interaction: discord.Interaction) -> None:
             v = interaction.data.get("values", [""])[0] if interaction.data else ""
             await interaction.response.edit_message(
-                embed=info_embed("Quote — step 3/4", "How many **characters**?"),
+                embed=info_embed("Quote — step 3/5", "How many **characters**?"),
                 view=QuoteCharView(self.cog, target, self.commission_type, str(v)),
             )
 
@@ -177,7 +129,7 @@ class QuoteCharView(discord.ui.View):
         async def cb(interaction: discord.Interaction) -> None:
             v = interaction.data.get("values", [""])[0] if interaction.data else ""
             await interaction.response.edit_message(
-                embed=info_embed("Quote — step 4/4", "**Background** level?"),
+                embed=info_embed("Quote — step 4/5", "**Background** level?"),
                 view=QuoteBgView(self.cog, target, self.commission_type, self.tier, str(v)),
             )
 
@@ -210,15 +162,61 @@ class QuoteBgView(discord.ui.View):
 
         async def cb(interaction: discord.Interaction) -> None:
             v = interaction.data.get("values", [""])[0] if interaction.data else ""
+            await interaction.response.edit_message(
+                embed=info_embed("Quote — step 5/5", "**Rush delivery** add-on?"),
+                view=QuoteRushView(
+                    self.cog, target, self.commission_type, self.tier, self.char_key, str(v)
+                ),
+            )
+
+        sel.callback = cb
+        self.add_item(sel)
+
+
+class QuoteRushView(discord.ui.View):
+    def __init__(
+        self,
+        cog: QuotesCog,
+        target: discord.Member,
+        commission_type: str,
+        tier: str,
+        char_key: str,
+        background: str,
+    ) -> None:
+        super().__init__(timeout=420.0)
+        self.cog = cog
+        self.target = target
+        self.commission_type = commission_type
+        self.tier = tier
+        self.char_key = char_key
+        self.background = background
+        sel = discord.ui.Select(
+            custom_id="quote_rush",
+            placeholder="Rush delivery",
+            options=[
+                discord.SelectOption(label="Standard (no rush)", value="0"),
+                discord.SelectOption(
+                    label="Rush (+₱520 / ~$30)", value="1"
+                ),
+            ],
+        )
+
+        async def cb(interaction: discord.Interaction) -> None:
+            v = interaction.data.get("values", [""])[0] if interaction.data else "0"
+            rush = v == "1"
             if not interaction.guild:
                 return
-            emb = await self.cog.compute_quote_embed(
+            data = await compute_quote_totals(
                 interaction.guild,
-                self.target,
-                self.commission_type,
-                self.tier,
-                self.char_key,
-                str(v),
+                target,
+                commission_type,
+                tier,
+                char_key,
+                background,
+                rush_addon=rush,
+            )
+            emb = await build_quote_embed(
+                interaction.guild, target, data, include_tier_comparison=True
             )
             await interaction.response.edit_message(embed=emb, view=None)
 
@@ -227,6 +225,8 @@ class QuoteBgView(discord.ui.View):
 
 
 class QuotesCog(commands.Cog, name="QuotesCog"):
+    quote = app_commands.Group(name="quote", description="Commission quote tools")
+
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
@@ -238,123 +238,26 @@ class QuotesCog(commands.Cog, name="QuotesCog"):
         tier: str,
         char_key: str,
         background: str,
+        *,
+        rush_addon: bool = False,
+        include_tier_comparison: bool = True,
     ) -> discord.Embed:
-        gs = await db.get_quote_guild_settings(guild.id)
-        brand = (gs or {}).get("brand_name") or "Mikaelleon"
-        ex = int((gs or {}).get("extra_character_php") or 0)
-        bg_s = int((gs or {}).get("bg_simple_php") or 0)
-        bg_d = int((gs or {}).get("bg_detailed_php") or 0)
-
-        rows = await db.list_quote_base_prices(guild.id)
-        price_map = {(r["commission_type"], r["tier"]): int(r["price_php"]) for r in rows}
-        base = int(price_map.get((commission_type, tier), 0))
-
-        n_char = _char_count(char_key)
-        extra_chars = max(0, n_char - 1)
-        extra_line = extra_chars * ex
-
-        if background == "None":
-            bg_fee = 0
-            bg_label = "None"
-        elif background == "Simple":
-            bg_fee = bg_s
-            bg_label = "Simple"
-        else:
-            bg_fee = bg_d
-            bg_label = "Detailed"
-
-        subtotal = base + extra_line + bg_fee
-        pct, disc_notes = await discount_percent_for_member(guild, member)
-        discount_amt = subtotal * (pct / 100.0) if pct > 0 else 0.0
-        total = max(0.0, float(subtotal) - discount_amt)
-
-        lines: list[str] = [
-            f"**Type:** {commission_type}",
-            f"**Characters:** {char_key}",
-            f"**Background:** {bg_label}",
-            f"**Tier:** {tier}",
-            "",
-            "─────────────────────────────",
-            f"{'Base Price':<20} {_fmt_php(base)}",
-        ]
-        if extra_line:
-            lines.append(f"{'Extra character(s)':<20} {_fmt_php(extra_line)}")
-        if bg_fee:
-            lines.append(f"{'Background':<20} {_fmt_php(bg_fee)}")
-        lines.append("─────────────────────────────")
-        lines.append(f"{'Subtotal':<20} {_fmt_php(subtotal)}")
-        if pct > 0:
-            who = ", ".join(disc_notes) if disc_notes else "Role discount"
-            lines.append(f"{'Discount':<20} -{_fmt_php(discount_amt)}  ({who})")
-            lines.append("─────────────────────────────")
-            lines.append(f"{'TOTAL':<20} {_fmt_php(total)}")
-            lines.append("")
-            lines.append(f"💰 You're saving {_fmt_php(discount_amt)} ({pct:g}%)!")
-        else:
-            lines.append("─────────────────────────────")
-            lines.append(f"{'TOTAL':<20} {_fmt_php(subtotal)}")
-            total = float(subtotal)
-
-        await db.ensure_default_quote_currencies(guild.id)
-        cur_rows = await db.list_quote_currencies(guild.id)
-        enabled = [r["currency_code"] for r in cur_rows if r.get("enabled")]
-        fx_lines: list[str] = []
-        if enabled:
-            rates = await fetch_php_rates(enabled)
-            if rates:
-                fx_lines.append("─────────────────────────────")
-                fx_lines.append("🌍 **International Prices**")
-                for code in sorted(enabled):
-                    r = rates.get(code)
-                    if r is None:
-                        continue
-                    sym = _currency_symbol(code)
-                    amt = total * r
-                    fx_lines.append(f"{code:<6} {sym}{amt:,.2f}")
-
-        comp_lines: list[str] = ["─────────────────────────────", "📋 **Tier comparison**"]
-        for t in RENDERING_TIERS:
-            b = int(price_map.get((commission_type, t), 0))
-            st = float(b + extra_line + bg_fee)
-            pct_t, _ = await discount_percent_for_member(guild, member)
-            tot_t = max(0.0, st - st * (pct_t / 100.0))
-            if t == tier:
-                comp_lines.append(f"**{t}**         {_fmt_php(tot_t)} ✅  ← your pick")
-            else:
-                diff = tot_t - total
-                if diff > 0:
-                    comp_lines.append(
-                        f"**{t}**         {_fmt_php(tot_t)}   →  ₱{diff:,.0f} more than **{tier}**"
-                    )
-                elif diff < 0:
-                    comp_lines.append(
-                        f"**{t}**         {_fmt_php(tot_t)}   →  you'd save ₱{-diff:,.0f} vs **{tier}**"
-                    )
-                else:
-                    comp_lines.append(f"**{t}**         {_fmt_php(tot_t)}")
-
-        desc = "\n".join(lines)
-        if fx_lines:
-            desc += "\n" + "\n".join(fx_lines)
-        desc += "\n" + "\n".join(comp_lines)
-        desc += (
-            "\n\n_Prices are subject to change. This quote is valid for today’s settings only._"
+        data = await compute_quote_totals(
+            guild,
+            member,
+            commission_type,
+            tier,
+            char_key,
+            background,
+            rush_addon=rush_addon,
+        )
+        return await build_quote_embed(
+            guild, member, data, include_tier_comparison=include_tier_comparison
         )
 
-        emb = discord.Embed(
-            title=f"🎨 Commission Quote — {brand}",
-            description=desc[:4096],
-            color=PRIMARY,
-        )
-        emb.set_footer(
-            text=member.display_name,
-            icon_url=member.display_avatar.url if member.display_avatar else None,
-        )
-        return emb
-
-    @app_commands.command(name="quote", description="Get an interactive commission price quote")
+    @quote.command(name="calculator", description="Interactive commission price quote (PHP + USD)")
     @app_commands.describe(member="Staff only: quote for this member (roles/discounts use them)")
-    async def quote_cmd(
+    async def quote_calculator_cmd(
         self,
         interaction: discord.Interaction,
         member: discord.Member | None = None,
@@ -394,11 +297,120 @@ class QuotesCog(commands.Cog, name="QuotesCog"):
             target = interaction.user
 
         emb = info_embed(
-            "Quote — step 1/4",
+            "Quote — step 1/5",
             "Pick your **commission type**.",
         )
         view = QuoteFlowView(self, target)
         await interaction.response.send_message(embed=emb, view=view, ephemeral=True)
+
+    @quote.command(
+        name="recalculate",
+        description="Re-post the ticket quote from the price matrix (staff, in ticket channel)",
+    )
+    @app_commands.describe(
+        tier="Rendering tier (leave empty to keep current)",
+        characters="Character count option (leave empty to keep current)",
+        background="Background level (leave empty to keep current)",
+        rush="Rush add-on (leave unset to keep current)",
+    )
+    @app_commands.choices(
+        tier=[app_commands.Choice(name=t, value=t) for t in RENDERING_TIERS],
+        characters=[app_commands.Choice(name=c, value=c) for c in CHAR_OPTIONS],
+        background=[app_commands.Choice(name=b, value=b) for b in BG_OPTIONS],
+    )
+    @is_staff()
+    async def quote_recalculate_cmd(
+        self,
+        interaction: discord.Interaction,
+        tier: str | None,
+        characters: str | None,
+        background: str | None,
+        rush: bool | None,
+    ) -> None:
+        if not interaction.guild or not isinstance(interaction.channel, discord.TextChannel):
+            await interaction.response.send_message(
+                embed=user_hint("Use a ticket channel", "Run this inside an open commission ticket."), ephemeral=True
+            )
+            return
+        ticket = await db.get_ticket_by_channel(interaction.channel.id)
+        if not ticket:
+            await interaction.response.send_message(
+                embed=user_hint("Not a ticket", "No open ticket record for this channel."), ephemeral=True
+            )
+            return
+        raw = ticket.get("quote_snapshot_json")
+        if not raw:
+            await interaction.response.send_message(
+                embed=user_warn("No quote snapshot", "This ticket has no saved quote fields yet."), ephemeral=True
+            )
+            return
+        try:
+            snap = json.loads(raw)
+        except json.JSONDecodeError:
+            await interaction.response.send_message(
+                embed=user_warn("Bad data", "Could not read quote snapshot."), ephemeral=True
+            )
+            return
+
+        ct = str(snap.get("commission_type") or "")
+        te = tier or str(snap.get("tier") or "")
+        ck = characters or str(snap.get("char_key") or "1")
+        bg = background or str(snap.get("background") or "None")
+        rush_b = snap.get("rush_addon")
+        if rush is not None:
+            rush_b = rush
+        elif isinstance(rush_b, bool):
+            pass
+        else:
+            rush_b = bool(int(rush_b or 0))
+
+        client = interaction.guild.get_member(int(ticket["client_id"]))
+        if not client:
+            await interaction.response.send_message(
+                embed=user_hint("Member missing", "Buyer is not in the server."), ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        data = await compute_quote_totals(
+            interaction.guild,
+            client,
+            ct,
+            te,
+            ck,
+            bg,
+            rush_addon=bool(rush_b),
+        )
+        emb = await build_quote_embed(
+            interaction.guild, client, data, include_tier_comparison=False
+        )
+        snap_out = {
+            "commission_type": ct,
+            "tier": te,
+            "char_key": ck,
+            "background": bg,
+            "rush_addon": bool(rush_b),
+        }
+        await db.update_ticket_fields(
+            interaction.channel.id,
+            quote_total_php=float(data["total_php"]),
+            quote_usd_approx=float(data["total_usd_approx"]),
+            quote_snapshot_json=json.dumps(snap_out, ensure_ascii=False),
+            rendering_tier=te,
+            background=bg,
+            char_count_key=ck,
+            rush_addon=1 if rush_b else 0,
+        )
+        try:
+            await interaction.channel.send(embed=emb)
+        except discord.HTTPException:
+            await interaction.followup.send(
+                embed=user_warn("Send failed", "Could not post the embed."), ephemeral=True
+            )
+            return
+        await interaction.followup.send(
+            embed=success_embed("Quote updated", "Posted a new quote embed in this channel."), ephemeral=True
+        )
 
     @app_commands.command(name="pricelist", description="Show commission base prices (PHP) from the database")
     async def pricelist_cmd(self, interaction: discord.Interaction) -> None:
@@ -437,7 +449,7 @@ class QuotesCog(commands.Cog, name="QuotesCog"):
             row_vals = [ct[:20]]
             for t in RENDERING_TIERS:
                 p = grid[ct].get(t)
-                row_vals.append(_fmt_php(p) if p is not None else "—")
+                row_vals.append(fmt_php(p) if p is not None else "—")
             lines.append(" | ".join(row_vals))
         body = "\n".join(lines)[:3900] + extras
         await interaction.response.send_message(
@@ -479,7 +491,7 @@ class QuotesCog(commands.Cog, name="QuotesCog"):
         await interaction.response.send_message(
             embed=success_embed(
                 "Saved",
-                f"**{commission_type}** / **{tier}** → {_fmt_php(price_php)}",
+                f"**{commission_type}** / **{tier}** → {fmt_php(price_php)}",
             ),
             ephemeral=True,
         )

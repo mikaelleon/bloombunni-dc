@@ -5,6 +5,7 @@ from __future__ import annotations
 # Roles
 STAFF_ROLE = "staff_role"
 TOS_AGREED_ROLE = "tos_agreed_role"
+AGE_VERIFIED_ROLE = "age_verified_role"
 COMMISSIONS_OPEN_ROLE = "commissions_open_role"
 PLEASE_VOUCH_ROLE = "please_vouch_role"
 BOOSTIE_ROLE = "boostie_role"
@@ -24,6 +25,7 @@ VOUCHES_CHANNEL = "vouches_channel"
 ORDER_NOTIFS_CHANNEL = "order_notifs_channel"
 START_HERE_CHANNEL = "start_here_channel"
 TOS_CHANNEL = "tos_channel"
+VERIFICATION_CHANNEL = "verification_channel"
 PAYMENT_CHANNEL = "payment_channel"
 WARN_LOG_CHANNEL = "warn_log_channel"
 
@@ -35,6 +37,7 @@ CHANNEL_SLOT_CHOICES: list[tuple[str, str]] = [
     ("Order notifications (optional)", ORDER_NOTIFS_CHANNEL),
     ("Start Here (ticket panel)", START_HERE_CHANNEL),
     ("TOS text channel", TOS_CHANNEL),
+    ("Age / ID verification (optional)", VERIFICATION_CHANNEL),
     ("Payment panel", PAYMENT_CHANNEL),
     ("Warn log", WARN_LOG_CHANNEL),
 ]
@@ -49,6 +52,7 @@ CATEGORY_SLOT_CHOICES: list[tuple[str, str]] = [
 ROLE_SLOT_CHOICES: list[tuple[str, str]] = [
     ("Staff", STAFF_ROLE),
     ("TOS agreed", TOS_AGREED_ROLE),
+    ("Age verified (NSFW tickets)", AGE_VERIFIED_ROLE),
     ("Commissions open", COMMISSIONS_OPEN_ROLE),
     ("Please vouch", PLEASE_VOUCH_ROLE),
     ("Boostie (quote discount)", BOOSTIE_ROLE),

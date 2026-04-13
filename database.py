@@ -91,6 +91,39 @@ async def _ensure_ticket_buttons_columns(db: aiosqlite.Connection) -> None:
         await db.execute("ALTER TABLE ticket_buttons ADD COLUMN select_options TEXT")
 
 
+async def _ensure_tickets_extended_columns(db: aiosqlite.Connection) -> None:
+    cur = await db.execute("PRAGMA table_info(tickets)")
+    cols = {row[1] for row in await cur.fetchall()}
+    migrations: list[tuple[str, str]] = [
+        ("quote_total_php", "REAL"),
+        ("quote_usd_approx", "REAL"),
+        ("quote_snapshot_json", "TEXT"),
+        ("rendering_tier", "TEXT"),
+        ("background", "TEXT"),
+        ("char_count_key", "TEXT"),
+        ("rush_addon", "INTEGER DEFAULT 0"),
+        ("ticket_status", "TEXT DEFAULT 'open'"),
+        ("wip_stage", "TEXT"),
+        ("revision_count", "INTEGER DEFAULT 0"),
+        ("revision_extra_fee_php", "REAL DEFAULT 0"),
+        ("references_json", "TEXT"),
+        ("downpayment_confirmed", "INTEGER DEFAULT 0"),
+        ("active_hours_notified", "INTEGER DEFAULT 0"),
+    ]
+    for name, typ in migrations:
+        if name not in cols:
+            await db.execute(f"ALTER TABLE tickets ADD COLUMN {name} {typ}")
+
+
+async def _ensure_ticket_buttons_age_gate(db: aiosqlite.Connection) -> None:
+    cur = await db.execute("PRAGMA table_info(ticket_buttons)")
+    cols = {row[1] for row in await cur.fetchall()}
+    if "require_age_verified" not in cols:
+        await db.execute(
+            "ALTER TABLE ticket_buttons ADD COLUMN require_age_verified INTEGER DEFAULT 0"
+        )
+
+
 async def _ensure_quote_and_wizard_schema(db: aiosqlite.Connection) -> None:
     await db.execute(
         """
@@ -335,6 +368,8 @@ async def init_db() -> None:
 
         await _ensure_tickets_schema(db)
         await _ensure_ticket_buttons_columns(db)
+        await _ensure_tickets_extended_columns(db)
+        await _ensure_ticket_buttons_age_gate(db)
         await _ensure_quote_and_wizard_schema(db)
         await db.commit()
 
@@ -561,6 +596,79 @@ async def list_orders_for_status_views() -> list[dict[str, Any]]:
 # --- Tickets ---
 
 
+_TICKET_UPDATEABLE: frozenset[str] = frozenset(
+    {
+        "quote_total_php",
+        "quote_usd_approx",
+        "quote_snapshot_json",
+        "rendering_tier",
+        "background",
+        "char_count_key",
+        "rush_addon",
+        "ticket_status",
+        "wip_stage",
+        "revision_count",
+        "revision_extra_fee_php",
+        "references_json",
+        "downpayment_confirmed",
+        "active_hours_notified",
+        "answers",
+    }
+)
+
+
+async def update_ticket_fields(channel_id: int, **fields: Any) -> None:
+    if not fields:
+        return
+    sets: list[str] = []
+    vals: list[Any] = []
+    for k, v in fields.items():
+        if k not in _TICKET_UPDATEABLE:
+            continue
+        if k == "answers" and isinstance(v, dict):
+            v = json.dumps(v, ensure_ascii=False)
+        sets.append(f"{k} = ?")
+        vals.append(v)
+    if not sets:
+        return
+    vals.append(channel_id)
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            f"UPDATE tickets SET {', '.join(sets)} WHERE channel_id = ?",
+            vals,
+        )
+        await db.commit()
+
+
+async def append_ticket_reference(channel_id: int, url: str) -> None:
+    row = await get_ticket_by_channel(channel_id)
+    if not row:
+        return
+    raw = row.get("references_json")
+    try:
+        links = json.loads(raw) if raw else []
+        if not isinstance(links, list):
+            links = []
+    except json.JSONDecodeError:
+        links = []
+    links.append(url.strip())
+    await update_ticket_fields(channel_id, references_json=json.dumps(links, ensure_ascii=False))
+
+
+async def log_ticket_revision(channel_id: int) -> tuple[int, float, float]:
+    """Increment revision count. Returns (new_count, fee_added_this_time, cumulative_extra_fee)."""
+    row = await get_ticket_by_channel(channel_id)
+    if not row:
+        return 0, 0.0, 0.0
+    n = int(row.get("revision_count") or 0) + 1
+    fee_this = 200.0 if n > 2 else 0.0
+    extra = float(row.get("revision_extra_fee_php") or 0.0) + fee_this
+    await update_ticket_fields(
+        channel_id, revision_count=n, revision_extra_fee_php=extra
+    )
+    return n, fee_this, extra
+
+
 async def insert_ticket_open(
     channel_id: int,
     guild_id: int,
@@ -568,9 +676,17 @@ async def insert_ticket_open(
     *,
     button_id: str | None = None,
     answers: dict[str, Any] | None = None,
+    quote_total_php: float | None = None,
+    quote_usd_approx: float | None = None,
+    quote_snapshot_json: str | None = None,
+    rendering_tier: str | None = None,
+    background: str | None = None,
+    char_count_key: str | None = None,
+    rush_addon: int = 0,
+    ticket_status: str | None = None,
 ) -> None:
     now = _utc_now()
-    ans_json = json.dumps(answers) if answers is not None else None
+    ans_json = json.dumps(answers, ensure_ascii=False) if answers is not None else None
     async with aiosqlite.connect(DATABASE_PATH) as db:
         await db.execute(
             """
@@ -583,6 +699,24 @@ async def insert_ticket_open(
             (channel_id, guild_id, client_id, button_id, ans_json, now),
         )
         await db.commit()
+    extra: dict[str, Any] = {}
+    if quote_total_php is not None:
+        extra["quote_total_php"] = quote_total_php
+    if quote_usd_approx is not None:
+        extra["quote_usd_approx"] = quote_usd_approx
+    if quote_snapshot_json is not None:
+        extra["quote_snapshot_json"] = quote_snapshot_json
+    if rendering_tier is not None:
+        extra["rendering_tier"] = rendering_tier
+    if background is not None:
+        extra["background"] = background
+    if char_count_key is not None:
+        extra["char_count_key"] = char_count_key
+    extra["rush_addon"] = rush_addon
+    if ticket_status is not None:
+        extra["ticket_status"] = ticket_status
+    if extra:
+        await update_ticket_fields(channel_id, **extra)
 
 
 async def update_ticket_order(
@@ -753,16 +887,37 @@ async def insert_ticket_button(
     category_id: int | None,
     form_fields: str | None,
     select_options: str | None = None,
+    require_age_verified: int = 0,
 ) -> None:
     async with aiosqlite.connect(DATABASE_PATH) as db:
         await db.execute(
             """
             INSERT INTO ticket_buttons (
-                button_id, guild_id, label, emoji, color, category_id, form_fields, select_options
+                button_id, guild_id, label, emoji, color, category_id, form_fields, select_options,
+                require_age_verified
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (button_id, guild_id, label, emoji, color, category_id, form_fields, select_options),
+            (
+                button_id,
+                guild_id,
+                label,
+                emoji,
+                color,
+                category_id,
+                form_fields,
+                select_options,
+                require_age_verified,
+            ),
+        )
+        await db.commit()
+
+
+async def set_ticket_button_require_age(button_id: str, require: int) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            "UPDATE ticket_buttons SET require_age_verified = ? WHERE button_id = ?",
+            (1 if require else 0, button_id),
         )
         await db.commit()
 

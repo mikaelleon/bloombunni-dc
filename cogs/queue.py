@@ -249,6 +249,158 @@ DUMMY_PREVIEW = {
 }
 
 
+async def register_order_in_ticket_channel(
+    cog: "QueueCog",
+    guild: discord.Guild,
+    channel: discord.TextChannel,
+    handler: discord.Member,
+    buyer: discord.Member,
+    amount: str,
+    item: str,
+    mop: str,
+    price: str,
+) -> tuple[str | None, str | None]:
+    """Create order + queue card + ticket messages. Returns (order_id, error_message)."""
+    valid_cats = await ticket_category_ids(guild.id)
+    if not valid_cats or channel.category_id not in valid_cats:
+        return None, "Pick a channel under your configured **ticket** categories."
+
+    now = datetime.now(timezone.utc)
+    mm = now.month
+    yy = now.year % 100
+    raw_pf = await db.get_guild_string_setting(guild.id, gk.ORDER_ID_PREFIX)
+    op = re.sub(r"[^A-Za-z0-9_-]", "", (raw_pf or "MIKA").strip())[:24] or "MIKA"
+    month_count = await db.count_orders_in_month(now.year, now.month, op) + 1
+    order_id = f"{op}-{mm:02d}{yy:02d}-{month_count:04d}"
+
+    buyer_count_before = await db.count_orders_for_buyer(buyer.id)
+    order_number = buyer_count_before + 1
+
+    await db.insert_order(
+        order_id,
+        handler.id,
+        buyer.id,
+        buyer.display_name,
+        item,
+        amount,
+        mop,
+        price,
+        channel.id,
+        "Noted",
+    )
+
+    await db.update_ticket_order(channel.id, order_id, order_number)
+
+    noted_cid = await db.get_guild_setting(guild.id, gk.NOTED_CATEGORY)
+    noted_cat = guild.get_channel(int(noted_cid)) if noted_cid else None
+    slug = sanitize_buyer_name(buyer.display_name)
+    try:
+        edit_kw: dict[str, Any] = {"name": f"noted_{slug}.{order_number}"[:100]}
+        if isinstance(noted_cat, discord.CategoryChannel):
+            edit_kw["category"] = noted_cat
+        await channel.edit(**edit_kw)
+    except discord.Forbidden:
+        pass
+
+    order_row = await db.get_order(order_id)
+    if not order_row:
+        return None, "Could not read order after insert."
+
+    qcid = await db.get_guild_setting(guild.id, gk.QUEUE_CHANNEL)
+    vcid = await db.get_guild_setting(guild.id, gk.VOUCHES_CHANNEL)
+    if not qcid or not vcid:
+        return None, (
+            "Set **Queue** and **Vouches** with **`/setup`** (wizard) or **`/config view`** first."
+        )
+
+    q_ch = guild.get_channel(int(qcid))
+    qmid = 0
+    if isinstance(q_ch, discord.TextChannel):
+        try:
+            qmsg = await q_ch.send(
+                embed=discord.Embed(description="\u200b", color=PRIMARY)
+            )
+            qmid = qmsg.id
+            await db.set_order_queue_message_id(order_id, qmid)
+        except discord.Forbidden:
+            pass
+
+    if not qmid:
+        return None, (
+            "Couldn’t post to the queue channel — check bot **Send Messages** there or remap the queue channel."
+        )
+
+    order_row = await db.get_order(order_id)
+    assert order_row
+    body = await build_queue_entry_text(
+        order_row,
+        guild,
+        qmid,
+        "Noted",
+        order_number=order_number,
+        buyer_display_name=buyer.display_name,
+        queue_channel_id=int(qcid),
+        vouches_channel_id=int(vcid),
+    )
+    emb_q = queue_embed(order_row, body)
+    try:
+        msg = await q_ch.fetch_message(qmid)
+        await msg.edit(embed=emb_q)
+    except (discord.NotFound, discord.Forbidden):
+        pass
+
+    qlink = queue_jump_url(guild.id, int(qcid), qmid)
+    noted_title = resolve_template(await get_template("noted_channel"), buyer=buyer.mention)
+    noted_buyer = resolve_template(
+        await get_template("noted_buyer_line"),
+        buyer=buyer.mention,
+        handler=handler.mention,
+        item=item,
+        amount=amount,
+        mop=mop,
+        price=price,
+        channel_name=channel.name,
+        queue_link=qlink,
+        vouches_channel=f"<#{vcid}>",
+    )
+    noted_inst = resolve_template(
+        await get_template("noted_instructions"),
+        buyer=buyer.mention,
+        handler=handler.mention,
+        item=item,
+        amount=amount,
+        mop=mop,
+        price=price,
+        channel_name=channel.name,
+        queue_link=qlink,
+        vouches_channel=f"<#{vcid}>",
+    )
+    emb_ticket = discord.Embed(
+        title=noted_title[:256],
+        description=f"{noted_buyer}\n\n{noted_inst}",
+        color=PRIMARY,
+    )
+    try:
+        await channel.send(content=buyer.mention, embed=emb_ticket)
+    except discord.Forbidden:
+        pass
+
+    pl = await get_template("processing_label")
+    pd = await get_template("processing_description")
+    cl = await get_template("completed_label")
+    cd = await get_template("completed_description")
+    view = OrderStatusView(cog.bot, order_id, qmid, pl, pd, cl, cd)
+    staff_header = "ςωϑ — staff only | do not touch .!"
+    try:
+        await channel.send(content=staff_header, view=view)
+    except discord.Forbidden:
+        pass
+
+    cog.bot.add_view(OrderStatusView(cog.bot, order_id, qmid, pl, pd, cl, cd))
+
+    return order_id, None
+
+
 class QueueCog(commands.Cog, name="QueueCog"):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
@@ -468,163 +620,25 @@ class QueueCog(commands.Cog, name="QueueCog"):
         channel: discord.TextChannel,
     ) -> None:
         await interaction.response.defer(ephemeral=True)
-
-        valid_cats = await ticket_category_ids(interaction.guild.id)
-        if not valid_cats or channel.category_id not in valid_cats:
-            await interaction.followup.send(
-                embed=user_hint("Wrong channel", "Pick a channel under your configured **ticket** categories."), ephemeral=True
-            )
-            return
-
-        now = datetime.now(timezone.utc)
-        mm = now.month
-        yy = now.year % 100
-        raw_pf = await db.get_guild_string_setting(
-            interaction.guild.id, gk.ORDER_ID_PREFIX
-        )
-        op = re.sub(r"[^A-Za-z0-9_-]", "", (raw_pf or "MIKA").strip())[:24] or "MIKA"
-        month_count = await db.count_orders_in_month(now.year, now.month, op) + 1
-        order_id = f"{op}-{mm:02d}{yy:02d}-{month_count:04d}"
-
-        buyer_count_before = await db.count_orders_for_buyer(buyer.id)
-        order_number = buyer_count_before + 1
-
-        await db.insert_order(
-            order_id,
-            handler.id,
-            buyer.id,
-            buyer.display_name,
-            item,
+        assert interaction.guild
+        oid, err = await register_order_in_ticket_channel(
+            self,
+            interaction.guild,
+            channel,
+            handler,
+            buyer,
             amount,
+            item,
             mop,
             price,
-            channel.id,
-            "Noted",
         )
-
-        await db.update_ticket_order(channel.id, order_id, order_number)
-
-        noted_cid = await db.get_guild_setting(interaction.guild.id, gk.NOTED_CATEGORY)
-        noted_cat = (
-            interaction.guild.get_channel(int(noted_cid))
-            if noted_cid
-            else None
-        )
-        slug = sanitize_buyer_name(buyer.display_name)
-        try:
-            edit_kw: dict[str, Any] = {"name": f"noted_{slug}.{order_number}"[:100]}
-            if isinstance(noted_cat, discord.CategoryChannel):
-                edit_kw["category"] = noted_cat
-            await channel.edit(**edit_kw)
-        except discord.Forbidden:
-            pass
-
-        guild = interaction.guild
-        order_row = await db.get_order(order_id)
-        assert order_row
-
-        qcid = await db.get_guild_setting(guild.id, gk.QUEUE_CHANNEL)
-        vcid = await db.get_guild_setting(guild.id, gk.VOUCHES_CHANNEL)
-        if not qcid or not vcid:
+        if err:
             await interaction.followup.send(
-                embed=user_hint(
-                    "Channels not configured",
-                    "Set **Queue** and **Vouches** with **`/setup`** (wizard) first.",
-                ),
-                ephemeral=True,
+                embed=user_hint("Queue", err), ephemeral=True
             )
             return
-
-        q_ch = guild.get_channel(int(qcid))
-        qmid = 0
-        if isinstance(q_ch, discord.TextChannel):
-            try:
-                qmsg = await q_ch.send(
-                    embed=discord.Embed(description="\u200b", color=PRIMARY)
-                )
-                qmid = qmsg.id
-                await db.set_order_queue_message_id(order_id, qmid)
-            except discord.Forbidden:
-                pass
-
-        if not qmid:
-            await interaction.followup.send(
-                embed=user_warn("Queue channel issue", "Couldn’t post to the queue channel — check bot **Send Messages** there or remap the queue channel."),
-                ephemeral=True,
-            )
-            return
-
-        order_row = await db.get_order(order_id)
-        body = await build_queue_entry_text(
-            order_row,
-            guild,
-            qmid,
-            "Noted",
-            order_number=order_number,
-            buyer_display_name=buyer.display_name,
-            queue_channel_id=int(qcid),
-            vouches_channel_id=int(vcid),
-        )
-        emb_q = queue_embed(order_row, body)
-        try:
-            msg = await q_ch.fetch_message(qmid)
-            await msg.edit(embed=emb_q)
-        except (discord.NotFound, discord.Forbidden):
-            pass
-
-        qlink = queue_jump_url(guild.id, int(qcid), qmid)
-        noted_title = resolve_template(await get_template("noted_channel"), buyer=buyer.mention)
-        noted_buyer = resolve_template(
-            await get_template("noted_buyer_line"),
-            buyer=buyer.mention,
-            handler=handler.mention,
-            item=item,
-            amount=amount,
-            mop=mop,
-            price=price,
-            channel_name=channel.name,
-            queue_link=qlink,
-            vouches_channel=f"<#{vcid}>",
-        )
-        noted_inst = resolve_template(
-            await get_template("noted_instructions"),
-            buyer=buyer.mention,
-            handler=handler.mention,
-            item=item,
-            amount=amount,
-            mop=mop,
-            price=price,
-            channel_name=channel.name,
-            queue_link=qlink,
-            vouches_channel=f"<#{vcid}>",
-        )
-        emb_ticket = discord.Embed(
-            title=noted_title[:256],
-            description=f"{noted_buyer}\n\n{noted_inst}",
-            color=PRIMARY,
-        )
-        try:
-            await channel.send(content=buyer.mention, embed=emb_ticket)
-        except discord.Forbidden:
-            pass
-
-        pl = await get_template("processing_label")
-        pd = await get_template("processing_description")
-        cl = await get_template("completed_label")
-        cd = await get_template("completed_description")
-        view = OrderStatusView(self.bot, order_id, qmid, pl, pd, cl, cd)
-        staff_header = "ςωϑ — staff only | do not touch .!"
-        try:
-            await channel.send(content=staff_header, view=view)
-        except discord.Forbidden:
-            pass
-
-        self.bot.add_view(
-            OrderStatusView(self.bot, order_id, qmid, pl, pd, cl, cd)
-        )
-
         await interaction.followup.send(
-            embed=success_embed("Queue", f"Order `{order_id}` registered."), ephemeral=True
+            embed=success_embed("Queue", f"Order `{oid}` registered."), ephemeral=True
         )
 
     @app_commands.command(name="settemplate", description="Set a message template override (staff)")

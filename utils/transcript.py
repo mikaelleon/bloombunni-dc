@@ -11,6 +11,8 @@ import discord
 
 async def generate_transcript(
     channel: discord.TextChannel | discord.Thread,
+    *,
+    extra_meta: list[str] | None = None,
 ) -> discord.File:
     """Fetch up to 500 messages (oldest first) and return HTML as discord.File."""
     messages: list[discord.Message] = []
@@ -22,6 +24,11 @@ async def generate_transcript(
     ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     gen_time = datetime.now(timezone.utc).isoformat()
 
+    extra_html = ""
+    if extra_meta:
+        lines = "<br>".join(html.escape(x) for x in extra_meta if x)
+        extra_html = f"<div class='meta'>{lines}</div><hr>"
+
     parts: list[str] = [
         "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Transcript</title>",
         "<style>body{font-family:Segoe UI,sans-serif;background:#1e1e2e;color:#cdd6f4;padding:24px;}",
@@ -32,6 +39,7 @@ async def generate_transcript(
         f"<strong>Channel:</strong> #{ch_name}<br>",
         f"<strong>Generated:</strong> {html.escape(gen_time)}</div>",
         "<hr>",
+        extra_html,
     ]
 
     for msg in messages:

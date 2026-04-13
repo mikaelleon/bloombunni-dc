@@ -22,6 +22,8 @@ RESET_GROUP_KEYS: dict[str, tuple[list[str], list[str]]] = {
             gk.DONE_CATEGORY,
             gk.TRANSCRIPT_CHANNEL,
             gk.START_HERE_CHANNEL,
+            gk.VERIFICATION_CHANNEL,
+            gk.AGE_VERIFIED_ROLE,
         ],
         [],
     ),

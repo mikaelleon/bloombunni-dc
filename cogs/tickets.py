@@ -14,24 +14,31 @@ from discord.ext import commands
 
 import database as db
 import guild_keys as gk
+from cogs.queue import QueueCog, register_order_in_ticket_channel
 from guild_config import get_category, get_role, get_text_channel
 from utils.channel_resolve import resolve_category, resolve_text_channel
 from utils.checks import is_staff
 from utils.embeds import PRIMARY, info_embed, success_embed, user_hint, user_warn
+from utils.quote_compute import (
+    BG_OPTIONS,
+    CHAR_OPTIONS,
+    RENDERING_TIERS,
+    build_quote_embed,
+    compute_quote_totals,
+    fmt_php,
+    installment_eligibility_note,
+    payment_terms_text,
+    tat_estimate_text,
+    ticket_channel_slug,
+)
 
 _SETUP_CH_ERR = (
     "Could not find that **text channel**. Use a channel mention (`<#id>`) or paste the "
     "**numeric channel ID** (Developer Mode → Copy Channel ID)."
 )
 
-# Modal-only fields (commission type is chosen in a Select menu first).
+# Modal-only fields (tier / characters / BG / rush are chosen in quote steps first).
 DEFAULT_MODAL_FIELDS: list[dict[str, Any]] = [
-    {
-        "label": "Number of Characters",
-        "placeholder": "e.g. 1, 2",
-        "required": True,
-        "long": False,
-    },
     {
         "label": "Mode of Payment",
         "placeholder": "e.g. GCash, PayPal",
@@ -61,10 +68,9 @@ DEFAULT_SELECT_OPTIONS: list[str] = [
     "Other",
 ]
 
-# Welcome embed field order (commission type is prepended from the Select, not the modal).
+# Welcome embed field order (quote details are added separately).
 WELCOME_FIELD_ORDER: tuple[str, ...] = (
     "Commission Type",
-    "Number of Characters",
     "Mode of Payment",
     "Reference Links",
     "Additional Notes",
@@ -212,16 +218,20 @@ class CommissionTypeSelectView(discord.ui.View):
             if not interaction.data or "values" not in interaction.data:
                 return
             commission_type = str(interaction.data["values"][0])[:100]
-            fields = _parse_form_fields_json(self._row.get("form_fields"))
-            modal = CommissionModal(
-                self.cog,
-                self.guild_id,
-                self.button_id,
-                self.button_label,
-                commission_type,
-                fields,
+            await interaction.response.edit_message(
+                embed=info_embed(
+                    "Rendering tier",
+                    "Pick the **rendering tier** for your quote (step 2/5).",
+                ),
+                view=TicketQuoteTierView(
+                    self.cog,
+                    self.guild_id,
+                    self.button_id,
+                    self.button_label,
+                    self._row,
+                    commission_type,
+                ),
             )
-            await interaction.response.send_modal(modal)
 
         select.callback = _select_cb
         self.add_item(select)
@@ -242,6 +252,197 @@ class CommissionTypeSelectView(discord.ui.View):
                 pass
 
 
+class TicketQuoteTierView(discord.ui.View):
+    def __init__(
+        self,
+        cog: TicketsCog,
+        guild_id: int,
+        button_id: str,
+        button_label: str,
+        row: dict[str, Any],
+        commission_type: str,
+    ) -> None:
+        super().__init__(timeout=420.0)
+        self.cog = cog
+        self.guild_id = guild_id
+        self.button_id = button_id
+        self.button_label = button_label
+        self._row = row
+        self.commission_type = commission_type
+        sel = discord.ui.Select(
+            custom_id="tqtier",
+            placeholder="Rendering tier",
+            options=[
+                discord.SelectOption(label=t[:100], value=t[:100]) for t in RENDERING_TIERS
+            ],
+        )
+
+        async def cb(interaction: discord.Interaction) -> None:
+            v = interaction.data.get("values", [""])[0] if interaction.data else ""
+            await interaction.response.edit_message(
+                embed=info_embed("Characters", "How many **characters**? (step 3/5)"),
+                view=TicketQuoteCharView(
+                    cog,
+                    guild_id,
+                    button_id,
+                    button_label,
+                    row,
+                    commission_type,
+                    str(v),
+                ),
+            )
+
+        sel.callback = cb
+        self.add_item(sel)
+
+
+class TicketQuoteCharView(discord.ui.View):
+    def __init__(
+        self,
+        cog: TicketsCog,
+        guild_id: int,
+        button_id: str,
+        button_label: str,
+        row: dict[str, Any],
+        commission_type: str,
+        tier: str,
+    ) -> None:
+        super().__init__(timeout=420.0)
+        self.cog = cog
+        self.guild_id = guild_id
+        self.button_id = button_id
+        self.button_label = button_label
+        self._row = row
+        self.commission_type = commission_type
+        self.tier = tier
+        sel = discord.ui.Select(
+            custom_id="tqchar",
+            placeholder="Number of characters",
+            options=[discord.SelectOption(label=c, value=c) for c in CHAR_OPTIONS],
+        )
+
+        async def cb(interaction: discord.Interaction) -> None:
+            v = interaction.data.get("values", [""])[0] if interaction.data else ""
+            await interaction.response.edit_message(
+                embed=info_embed("Background", "**Background** level (step 4/5)"),
+                view=TicketQuoteBgView(
+                    cog,
+                    guild_id,
+                    button_id,
+                    button_label,
+                    row,
+                    commission_type,
+                    tier,
+                    str(v),
+                ),
+            )
+
+        sel.callback = cb
+        self.add_item(sel)
+
+
+class TicketQuoteBgView(discord.ui.View):
+    def __init__(
+        self,
+        cog: TicketsCog,
+        guild_id: int,
+        button_id: str,
+        button_label: str,
+        row: dict[str, Any],
+        commission_type: str,
+        tier: str,
+        char_key: str,
+    ) -> None:
+        super().__init__(timeout=420.0)
+        self.cog = cog
+        self.guild_id = guild_id
+        self.button_id = button_id
+        self.button_label = button_label
+        self._row = row
+        self.commission_type = commission_type
+        self.tier = tier
+        self.char_key = char_key
+        sel = discord.ui.Select(
+            custom_id="tqbg",
+            placeholder="Background",
+            options=[discord.SelectOption(label=b, value=b) for b in BG_OPTIONS],
+        )
+
+        async def cb(interaction: discord.Interaction) -> None:
+            v = interaction.data.get("values", [""])[0] if interaction.data else ""
+            await interaction.response.edit_message(
+                embed=info_embed("Rush delivery", "**Rush** add-on? (step 5/5)"),
+                view=TicketQuoteRushView(
+                    cog,
+                    guild_id,
+                    button_id,
+                    button_label,
+                    row,
+                    commission_type,
+                    tier,
+                    char_key,
+                    str(v),
+                ),
+            )
+
+        sel.callback = cb
+        self.add_item(sel)
+
+
+class TicketQuoteRushView(discord.ui.View):
+    def __init__(
+        self,
+        cog: TicketsCog,
+        guild_id: int,
+        button_id: str,
+        button_label: str,
+        row: dict[str, Any],
+        commission_type: str,
+        tier: str,
+        char_key: str,
+        background: str,
+    ) -> None:
+        super().__init__(timeout=420.0)
+        self.cog = cog
+        self.guild_id = guild_id
+        self.button_id = button_id
+        self.button_label = button_label
+        self._row = row
+        self.commission_type = commission_type
+        self.tier = tier
+        self.char_key = char_key
+        self.background = background
+        sel = discord.ui.Select(
+            custom_id="tqrush",
+            placeholder="Rush delivery",
+            options=[
+                discord.SelectOption(label="Standard (no rush)", value="0"),
+                discord.SelectOption(label="Rush (+₱520 / ~$30)", value="1"),
+            ],
+        )
+
+        async def cb(interaction: discord.Interaction) -> None:
+            v = interaction.data.get("values", [""])[0] if interaction.data else "0"
+            rush = v == "1"
+            fields = _parse_form_fields_json(self._row.get("form_fields"))
+            modal = CommissionModal(
+                cog,
+                guild_id,
+                button_id,
+                button_label,
+                commission_type,
+                tier,
+                char_key,
+                background,
+                rush,
+                fields,
+            )
+            await interaction.response.send_modal(modal)
+
+        sel.callback = cb
+        self.add_item(sel)
+
+
 class CommissionModal(discord.ui.Modal):
     def __init__(
         self,
@@ -250,14 +451,22 @@ class CommissionModal(discord.ui.Modal):
         button_id: str,
         button_label: str,
         commission_type: str,
+        rendering_tier: str,
+        char_key: str,
+        background: str,
+        rush_addon: bool,
         fields: list[dict[str, Any]],
     ) -> None:
-        super().__init__(title="Please answer the question below.")
+        super().__init__(title="Payment & references")
         self.cog = cog
         self.guild_id = guild_id
         self.button_id = button_id
         self.button_label = button_label
         self.commission_type = commission_type
+        self.rendering_tier = rendering_tier
+        self.char_key = char_key
+        self.background = background
+        self.rush_addon = rush_addon
         self._field_labels: list[str] = []
         for i, f in enumerate(fields[:4]):
             lab = str(f.get("label", "Field"))[:45]
@@ -290,7 +499,22 @@ class CommissionModal(discord.ui.Modal):
             self.button_label,
             self.commission_type,
             answers,
+            rendering_tier=self.rendering_tier,
+            char_key=self.char_key,
+            background=self.background,
+            rush_addon=self.rush_addon,
         )
+
+
+WIP_STAGES: tuple[str, ...] = (
+    "Sketch",
+    "Sketch Approved",
+    "Base Colors",
+    "Final Rendering",
+    "Watermarked Preview Sent",
+    "Final Balance Pending",
+    "Delivered",
+)
 
 
 class TicketsCog(commands.Cog, name="TicketsCog"):
@@ -300,6 +524,9 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
     )
     ticketbutton = app_commands.Group(name="ticketbutton", description="Ticket panel buttons (staff)")
     ticketform = app_commands.Group(name="ticketform", description="Ticket form fields (staff)")
+    payment = app_commands.Group(name="payment", description="Ticket payment workflow")
+    revision = app_commands.Group(name="revision", description="Ticket revision tracking")
+    references = app_commands.Group(name="references", description="Ticket reference links")
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
@@ -535,8 +762,9 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             cname = cat.name if isinstance(cat, discord.CategoryChannel) else "default"
             ff = "custom" if r.get("form_fields") else "default"
             em = r.get("emoji") or "—"
+            ag = "🔞 age gate" if int(r.get("require_age_verified") or 0) else ""
             lines.append(
-                f"**{r['label']}** — emoji: {em} — color: `{r['color']}` — category: {cname} — form: {ff}"
+                f"**{r['label']}** — emoji: {em} — color: `{r['color']}` — category: {cname} — form: {ff} {ag}".strip()
             )
         await interaction.response.send_message(
             embed=info_embed("Ticket buttons", "\n".join(lines)[:4000]),
@@ -843,6 +1071,22 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             await interaction.response.send_message(embed=user_warn("Terms required", hint), ephemeral=True)
             return
 
+        if int(row.get("require_age_verified") or 0):
+            age_role = await get_role(interaction.guild, gk.AGE_VERIFIED_ROLE)
+            if not age_role or age_role not in interaction.user.roles:
+                ver_cid = await db.get_guild_setting(
+                    interaction.guild.id, gk.VERIFICATION_CHANNEL
+                )
+                hint = (
+                    f"NSFW commissions require age verification. Complete verification in <#{ver_cid}> first."
+                    if ver_cid
+                    else "Ask staff to set **Age verified** role and **verification channel** in **`/config view`**, then verify."
+                )
+                await interaction.response.send_message(
+                    embed=user_warn("Age verification required", hint), ephemeral=True
+                )
+                return
+
         if not await db.shop_is_open_db():
             await interaction.response.send_message(
                 embed=user_warn("Shop is closed", "Commissions are closed right now — check back when staff reopen."),
@@ -879,6 +1123,11 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         button_label: str,
         commission_type: str,
         answers: dict[str, str],
+        *,
+        rendering_tier: str,
+        char_key: str,
+        background: str,
+        rush_addon: bool,
     ) -> None:
         if not interaction.guild:
             return
@@ -933,10 +1182,11 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
 
         raw_name = re.sub(r"[^a-z0-9\s]", "", member.name.lower())
         raw_name = re.sub(r"\s+", "_", raw_name).strip("_")[:80] or "user"
+        ch_slug = ticket_channel_slug(rendering_tier, commission_type, raw_name)
 
         try:
             ticket_ch = await interaction.guild.create_text_channel(
-                f"ticket-{raw_name}",
+                ch_slug,
                 category=category,
                 overwrites=overwrites,
                 reason=f"Ticket ({button_label}) for {member}",
@@ -957,14 +1207,49 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             )
             return
 
-        full_answers: dict[str, str] = {"Commission Type": commission_type}
+        data = await compute_quote_totals(
+            interaction.guild,
+            member,
+            commission_type,
+            rendering_tier,
+            char_key,
+            background,
+            rush_addon=rush_addon,
+        )
+        total_php = float(data["total_php"])
+        total_usd = float(data["total_usd_approx"])
+        snap = {
+            "commission_type": commission_type,
+            "tier": rendering_tier,
+            "char_key": char_key,
+            "background": background,
+            "rush_addon": rush_addon,
+            "total_php": total_php,
+        }
+
+        full_answers: dict[str, str] = {
+            "Commission Type": commission_type,
+            "Rendering Tier": rendering_tier,
+            "Characters": char_key,
+            "Background": background,
+            "Rush": "Yes (+₱520)" if rush_addon else "No",
+        }
         full_answers.update(answers)
+
         await db.insert_ticket_open(
             ticket_ch.id,
             interaction.guild.id,
             member.id,
             button_id=button_id,
             answers=full_answers,
+            quote_total_php=total_php,
+            quote_usd_approx=total_usd,
+            quote_snapshot_json=json.dumps(snap, ensure_ascii=False),
+            rendering_tier=rendering_tier,
+            background=background,
+            char_count_key=char_key,
+            rush_addon=1 if rush_addon else 0,
+            ticket_status="awaiting_payment",
         )
 
         try:
@@ -972,12 +1257,30 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         except discord.HTTPException:
             pass
 
-        desc_lines: list[str] = []
+        q_emb = await build_quote_embed(
+            interaction.guild, member, data, include_tier_comparison=False
+        )
+        try:
+            await ticket_ch.send(embed=q_emb)
+        except discord.HTTPException:
+            pass
+
+        terms = payment_terms_text(total_php, total_usd)
+        tat = tat_estimate_text(rendering_tier, commission_type, rush_addon)
+        inst = installment_eligibility_note(commission_type, rendering_tier)
+        loyalty_row = await db.get_loyalty(member.id)
+        l_count = int(loyalty_row["completed_count"]) if loyalty_row else 0
+        extra_head = f"{terms}\n\n{tat}\n"
+        if inst:
+            extra_head += f"\n{inst}\n"
+        extra_head += f"\n**Loyalty:** {l_count} completed order(s) on record.\n"
+
+        desc_lines: list[str] = [extra_head]
         for key in WELCOME_FIELD_ORDER:
             if key in full_answers:
                 desc_lines.append(f"**{key}:** {full_answers[key]}")
         for k, v in full_answers.items():
-            if k not in WELCOME_FIELD_ORDER:
+            if k not in WELCOME_FIELD_ORDER and not k.startswith("_"):
                 desc_lines.append(f"**{k}:** {v}")
         body = "\n".join(desc_lines)[:3900]
         welcome = discord.Embed(
@@ -986,8 +1289,313 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             color=PRIMARY,
         )
         await ticket_ch.send(embed=welcome, view=CloseTicketView())
+
+        # Downpayment / full payment due
+        if total_php > 500 or total_usd > 25:
+            due = total_php / 2.0
+            due_l = f"**50% down payment due now:** {fmt_php(due)} (approx. half of total)."
+        else:
+            due = total_php
+            due_l = f"**Full payment due upfront:** {fmt_php(due)}."
+
+        gcash = await db.get_guild_string_setting(interaction.guild.id, gk.PAYMENT_GCASH_DETAILS)
+        pp = await db.get_guild_string_setting(interaction.guild.id, gk.PAYMENT_PAYPAL_LINK)
+        kf = await db.get_guild_string_setting(interaction.guild.id, gk.PAYMENT_KOFI_LINK)
+        pay_bits = []
+        if gcash:
+            pay_bits.append("**GCash** — see payment panel / staff.")
+        if pp:
+            pay_bits.append(f"**PayPal:** {pp[:200]}")
+        if kf:
+            pay_bits.append(f"**Ko-fi:** {kf[:200]}")
+        pay_body = "\n".join(pay_bits) if pay_bits else "_Configure payment text with `/config payment`._"
+        dp = discord.Embed(
+            title="💳 Awaiting payment",
+            description=f"{due_l}\n\n**Total quoted:** {fmt_php(total_php)} (~${total_usd:,.2f} USD)\n\n{pay_body}",
+            color=PRIMARY,
+        )
+        try:
+            await ticket_ch.send(embed=dp)
+        except discord.HTTPException:
+            pass
+
+        info_e = discord.Embed(
+            title="Staff shortcuts",
+            description=(
+                "**`/quote recalculate`** — update quote embed\n"
+                "**`/payment confirm`** — payment received → queue + in progress\n"
+                "**`/stage`** — WIP stage update\n"
+                "**`/revision log`** — log a revision\n"
+                "**`/references add`** — save reference links"
+            ),
+            color=PRIMARY,
+        )
+        try:
+            await ticket_ch.send(embed=info_e)
+        except discord.HTTPException:
+            pass
+
         await interaction.followup.send(
             embed=success_embed("Ticket opened", f"Go to {ticket_ch.mention}"),
+            ephemeral=True,
+        )
+
+    @payment.command(
+        name="confirm",
+        description="Confirm payment received — register queue order and mark ticket in progress (staff)",
+    )
+    @is_staff()
+    async def payment_confirm_cmd(self, interaction: discord.Interaction) -> None:
+        if not interaction.guild or not isinstance(interaction.channel, discord.TextChannel):
+            await interaction.response.send_message(
+                embed=user_hint("Ticket only", "Use this inside the buyer’s ticket channel."), ephemeral=True
+            )
+            return
+        if not isinstance(interaction.user, discord.Member):
+            return
+        ticket = await db.get_ticket_by_channel(interaction.channel.id)
+        if not ticket:
+            await interaction.response.send_message(
+                embed=user_hint("Not a ticket", "No open ticket record for this channel."), ephemeral=True
+            )
+            return
+        await interaction.response.defer(ephemeral=True)
+
+        raw_ans = ticket.get("answers")
+        try:
+            answers: dict[str, Any] = (
+                json.loads(raw_ans) if isinstance(raw_ans, str) else (raw_ans or {})
+            )
+        except json.JSONDecodeError:
+            answers = {}
+
+        client = interaction.guild.get_member(int(ticket["client_id"]))
+        if not client:
+            await interaction.followup.send(
+                embed=user_hint("Buyer missing", "The client is not in this server."), ephemeral=True
+            )
+            return
+
+        snap_raw = ticket.get("quote_snapshot_json")
+        try:
+            snap = json.loads(snap_raw) if snap_raw else {}
+        except json.JSONDecodeError:
+            snap = {}
+        total_php = float(ticket.get("quote_total_php") or 0)
+        item = f"{snap.get('commission_type', 'Commission')} / {snap.get('tier', '')}".strip(
+            " /"
+        )
+        amount = str(snap.get("char_key", "1"))
+        mop = str(answers.get("Mode of Payment", "—"))
+        price = fmt_php(total_php) if total_php else "—"
+
+        if ticket.get("order_id"):
+            await db.update_ticket_fields(
+                interaction.channel.id,
+                ticket_status="in_progress",
+                downpayment_confirmed=1,
+            )
+            try:
+                await interaction.channel.send(
+                    content=client.mention,
+                    embed=success_embed(
+                        "Payment recorded",
+                        "This ticket already had a queue order. Status set to **in progress**.",
+                    ),
+                )
+            except discord.HTTPException:
+                pass
+            await interaction.followup.send(
+                embed=success_embed("Updated", "Ticket marked **in progress**."), ephemeral=True
+            )
+            return
+
+        qc = interaction.client.get_cog("QueueCog")
+        if not isinstance(qc, QueueCog):
+            await interaction.followup.send(
+                embed=user_warn("Queue unavailable", "Queue module not loaded."), ephemeral=True
+            )
+            return
+        oid, err = await register_order_in_ticket_channel(
+            qc,
+            interaction.guild,
+            interaction.channel,
+            interaction.user,
+            client,
+            amount,
+            item,
+            mop,
+            price,
+        )
+        if err:
+            await interaction.followup.send(
+                embed=user_warn("Queue", err), ephemeral=True
+            )
+            return
+
+        await db.update_ticket_fields(
+            interaction.channel.id,
+            ticket_status="in_progress",
+            downpayment_confirmed=1,
+        )
+        try:
+            await interaction.channel.send(
+                content=client.mention,
+                embed=success_embed(
+                    "Payment confirmed",
+                    f"Order **`{oid}`** is on the queue. Work can proceed.",
+                ),
+            )
+        except discord.HTTPException:
+            pass
+        await interaction.followup.send(
+            embed=success_embed("Done", f"Registered **`{oid}`** and posted queue card."), ephemeral=True
+        )
+
+    @app_commands.command(name="stage", description="Post a WIP stage update in this ticket (staff)")
+    @is_staff()
+    @app_commands.describe(stage="Current commission stage")
+    @app_commands.choices(
+        stage=[app_commands.Choice(name=s[:100], value=s) for s in WIP_STAGES]
+    )
+    async def stage_cmd(self, interaction: discord.Interaction, stage: str) -> None:
+        if not interaction.guild or not isinstance(interaction.channel, discord.TextChannel):
+            await interaction.response.send_message(
+                embed=user_hint("Ticket only", "Use this in a ticket channel."), ephemeral=True
+            )
+            return
+        t = await db.get_ticket_by_channel(interaction.channel.id)
+        if not t:
+            await interaction.response.send_message(
+                embed=user_hint("Not a ticket", "No open ticket here."), ephemeral=True
+            )
+            return
+        await db.update_ticket_fields(interaction.channel.id, wip_stage=stage)
+        emb = discord.Embed(
+            title="📍 Stage update",
+            description=f"**{stage}**",
+            color=PRIMARY,
+        )
+        await interaction.response.send_message(embed=emb)
+
+    @revision.command(name="log", description="Log a revision (2 free, then +₱200 each)")
+    @is_staff()
+    @app_commands.describe(note="Optional note")
+    async def revision_log_cmd(
+        self, interaction: discord.Interaction, note: str | None = None
+    ) -> None:
+        if not interaction.guild or not isinstance(interaction.channel, discord.TextChannel):
+            await interaction.response.send_message(
+                embed=user_hint("Ticket only", "Use this in a ticket channel."), ephemeral=True
+            )
+            return
+        trow = await db.get_ticket_by_channel(interaction.channel.id)
+        if not trow:
+            await interaction.response.send_message(
+                embed=user_hint("Not a ticket", "No open ticket here."), ephemeral=True
+            )
+            return
+        n, fee_this, extra = await db.log_ticket_revision(interaction.channel.id)
+        client = interaction.guild.get_member(int(trow["client_id"]))
+        lines = [f"**Revision #{n}** logged."]
+        if fee_this > 0:
+            lines.append(
+                f"**Extra revision fee (this ticket):** {fmt_php(fee_this)} (running extra total: {fmt_php(extra)})."
+            )
+        if note:
+            lines.append(f"Note: {note}")
+        emb = discord.Embed(
+            title="Revision",
+            description="\n".join(lines),
+            color=PRIMARY,
+        )
+        await interaction.response.send_message(
+            content=client.mention if client else None,
+            embed=emb,
+        )
+
+    @references.command(name="add", description="Append a reference URL to this ticket (staff)")
+    @is_staff()
+    @app_commands.describe(url="Image or moodboard link")
+    async def references_add_cmd(self, interaction: discord.Interaction, url: str) -> None:
+        if not interaction.guild or not isinstance(interaction.channel, discord.TextChannel):
+            await interaction.response.send_message(
+                embed=user_hint("Ticket only", "Use this in a ticket channel."), ephemeral=True
+            )
+            return
+        t = await db.get_ticket_by_channel(interaction.channel.id)
+        if not t:
+            await interaction.response.send_message(
+                embed=user_hint("Not a ticket", "No open ticket here."), ephemeral=True
+            )
+            return
+        await db.append_ticket_reference(interaction.channel.id, url.strip())
+        await interaction.response.send_message(
+            embed=success_embed("Saved", url[:500]), ephemeral=True
+        )
+
+    @references.command(name="view", description="Show all saved reference links for this ticket")
+    @is_staff()
+    async def references_view_cmd(self, interaction: discord.Interaction) -> None:
+        if not interaction.guild or not isinstance(interaction.channel, discord.TextChannel):
+            await interaction.response.send_message(
+                embed=user_hint("Ticket only", "Use this in a ticket channel."), ephemeral=True
+            )
+            return
+        t = await db.get_ticket_by_channel(interaction.channel.id)
+        if not t:
+            await interaction.response.send_message(
+                embed=user_hint("Not a ticket", "No open ticket here."), ephemeral=True
+            )
+            return
+        raw = t.get("references_json")
+        try:
+            links = json.loads(raw) if raw else []
+            if not isinstance(links, list):
+                links = []
+        except json.JSONDecodeError:
+            links = []
+        if not links:
+            await interaction.response.send_message(
+                embed=info_embed("References", "No links saved yet."), ephemeral=True
+            )
+            return
+        body = "\n".join(f"{i + 1}. {u}" for i, u in enumerate(links))[:3900]
+        await interaction.response.send_message(
+            embed=info_embed("Reference links", body), ephemeral=True
+        )
+
+    @ticketbutton.command(
+        name="agegate",
+        description="Require age-verified role to open this ticket type (NSFW)",
+    )
+    @app_commands.describe(
+        button="Button label",
+        require_age_verified="If true, user must have Age verified role",
+    )
+    @is_staff()
+    async def ticketbutton_agegate(
+        self,
+        interaction: discord.Interaction,
+        button: str,
+        require_age_verified: bool,
+    ) -> None:
+        if not interaction.guild:
+            return
+        row = await db.find_ticket_button_by_label(interaction.guild.id, button)
+        if not row:
+            await interaction.response.send_message(
+                embed=user_hint("Not found", "No button with that label."), ephemeral=True
+            )
+            return
+        await db.set_ticket_button_require_age(
+            row["button_id"], 1 if require_age_verified else 0
+        )
+        await interaction.response.send_message(
+            embed=success_embed(
+                "Age gate",
+                f"**{button}** → age verification **{'required' if require_age_verified else 'off'}**.",
+            ),
             ephemeral=True,
         )
 
@@ -1024,8 +1632,25 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
 
         from utils.transcript import generate_transcript
 
+        meta_lines: list[str] = []
+        if ticket.get("revision_count") is not None:
+            meta_lines.append(
+                f"Revisions logged: {int(ticket.get('revision_count') or 0)}"
+            )
+        if ticket.get("revision_extra_fee_php") is not None:
+            meta_lines.append(
+                f"Extra revision fees (PHP): {float(ticket.get('revision_extra_fee_php') or 0):,.2f}"
+            )
+        if ticket.get("quote_total_php") is not None:
+            meta_lines.append(
+                f"Quoted total (PHP): {float(ticket.get('quote_total_php') or 0):,.2f}"
+            )
+
         try:
-            file = await generate_transcript(interaction.channel)
+            file = await generate_transcript(
+                interaction.channel,
+                extra_meta=meta_lines if meta_lines else None,
+            )
         except Exception:
             await interaction.followup.send(
                 embed=user_warn("Transcript issue", "Couldn’t build the transcript file. Ask an admin to check bot permissions in this channel."),
