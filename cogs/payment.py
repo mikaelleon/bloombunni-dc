@@ -75,7 +75,7 @@ class PaymentView(discord.ui.View):
             await interaction.response.send_message(
                 embed=user_hint(
                     "Payment not set up yet",
-                    "Ask a manager to set **Ko-fi** link with **`/serverconfig payment kofi_link`**.",
+                    "Ask a manager to set **Ko-fi** link with **`/config payment kofi_link`**.",
                 ),
                 ephemeral=True,
             )

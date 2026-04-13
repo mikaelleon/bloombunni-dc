@@ -1,5 +1,9 @@
 # Ticketing system
 
+> **Updated reference:** See **[tickets-and-panels.md](tickets-and-panels.md)** for the current command set, gates (TOS, shop open, age verification), quote integration, and payment workflow. Configuration is done with **`/setup`** and **`/config`** (not `/serverconfig`).
+
+---
+
 This document describes how the bot’s **commission / support ticketing** feature works: configuration, user flow, what gets shown in Discord, persistence, and closing behavior.
 
 Implementation lives mainly in `cogs/tickets.py` with data in SQLite (`database.py`).
@@ -15,7 +19,7 @@ Implementation lives mainly in `cogs/tickets.py` with data in SQLite (`database.
 
 ---
 
-## Prerequisites (`/serverconfig`)
+## Prerequisites (`/setup` / `/config`)
 
 Before ticketing works end-to-end, the server should configure at least:
 
