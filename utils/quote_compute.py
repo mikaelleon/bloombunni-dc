@@ -40,10 +40,13 @@ TYPE_SLUG: dict[str, str] = {
     "Other": "ot",
 }
 
-# Payment thresholds (PHP / USD)
+# Payment thresholds (PHP / USD) — applied to **total to send** (commission + processor fee)
 DOWNPAYMENT_THRESHOLD_PHP = 500.0
 DOWNPAYMENT_THRESHOLD_USD = 25.0
 
+# PayPal / Ko-fi (USD): fee on top of artist payout, in USD
+PROCESSOR_FEE_RATE = 0.044
+PROCESSOR_FEE_FIXED_USD = 0.30
 
 def char_count(key: str) -> int:
     if key == "4+":
@@ -59,6 +62,11 @@ def fmt_php(n: float | int) -> str:
     if abs(v - round(v)) < 0.01:
         return f"₱{int(round(v)):,}"
     return f"₱{v:,.2f}"
+
+
+def fmt_usd(n: float | int) -> str:
+    v = float(n)
+    return f"${v:,.2f}"
 
 
 def currency_symbol(code: str) -> str:
@@ -150,8 +158,84 @@ async def compute_quote_totals(
     }
 
 
+def processor_fee_usd_on_base(artist_base_usd: float) -> float:
+    """PayPal / Ko-fi: (base × 4.4%) + $0.30 in USD."""
+    return max(0.0, float(artist_base_usd) * PROCESSOR_FEE_RATE + PROCESSOR_FEE_FIXED_USD)
+
+
+def compute_payment_breakdown(
+    *,
+    artist_php: float,
+    artist_usd: float,
+    pay_currency: str,
+    payment_method: str,
+) -> dict[str, Any]:
+    """
+    Client pays processor fee on top of artist commission.
+    PHP path: GCash only, fee 0. USD path: PayPal or Ko-fi with US fee formula on artist USD.
+    """
+    ap = float(artist_php)
+    au = float(artist_usd)
+    pc = pay_currency.upper()
+    pm = payment_method
+
+    if pc == "PHP":
+        fee_php = 0.0
+        fee_usd = 0.0
+        total_send_php = ap
+        total_send_usd = au  # reference only
+        return {
+            "pay_currency": "PHP",
+            "payment_method": "GCash",
+            "artist_php": ap,
+            "artist_usd": au,
+            "fee_php": fee_php,
+            "fee_usd": fee_usd,
+            "total_send_php": total_send_php,
+            "total_send_usd": total_send_usd,
+            "kofi_note": False,
+        }
+
+    # USD
+    fee_u = processor_fee_usd_on_base(au) if pm in ("PayPal", "Ko-fi") else 0.0
+    send_u = au + fee_u
+    return {
+        "pay_currency": "USD",
+        "payment_method": pm,
+        "artist_php": ap,
+        "artist_usd": au,
+        "fee_php": 0.0,
+        "fee_usd": fee_u,
+        "total_send_php": None,
+        "total_send_usd": send_u,
+        "kofi_note": pm == "Ko-fi",
+    }
+
+
+def payment_terms_from_total_send(breakdown: dict[str, Any]) -> str:
+    """Full vs 50% down using total-to-send in the paying currency."""
+    pc = str(breakdown.get("pay_currency") or "PHP")
+    if pc == "PHP":
+        t = float(breakdown.get("total_send_php") or 0)
+        if t <= DOWNPAYMENT_THRESHOLD_PHP:
+            return "**Payment terms:** **Full payment required upfront.**"
+        half = t / 2.0
+        return (
+            "**Payment terms:** **50% down payment:** "
+            f"{fmt_php(half)}. **Remaining balance:** {fmt_php(half)}."
+        )
+    t = float(breakdown.get("total_send_usd") or 0)
+    if t <= DOWNPAYMENT_THRESHOLD_USD:
+        return "**Payment terms:** **Full payment required upfront.**"
+    half = t / 2.0
+    return (
+        "**Payment terms:** **50% down payment:** "
+        f"{fmt_usd(half)}. **Remaining balance:** {fmt_usd(half)}."
+    )
+
+
 def payment_terms_text(total_php: float, total_usd: float) -> str:
-    """50% down vs full upfront + thresholds."""
+    """Deprecated for ticket flow — use payment_terms_from_total_send after processor fees."""
     if total_php > DOWNPAYMENT_THRESHOLD_PHP or total_usd > DOWNPAYMENT_THRESHOLD_USD:
         half = total_php / 2.0
         return (
@@ -204,6 +288,34 @@ def ticket_channel_slug(tier: str, commission_type: str, username_slug: str) -> 
     return raw[:100]
 
 
+def format_settlement_lines(bd: dict[str, Any]) -> list[str]:
+    """Base price, fee, total to send, artist receives + payment terms line."""
+    out = [
+        "─────────────────────────────",
+        "**💳 Payment & fees** _(fee is on top of commission; artist receives base only)_",
+    ]
+    if bd["pay_currency"] == "PHP":
+        out.append(f"**Paying in:** PHP — **{bd['payment_method']}**")
+        out.append(f"**Base price:** {fmt_php(bd['artist_php'])}")
+        out.append("**Payment fee:** ₱0 (GCash)")
+        out.append(f"**Total to send:** {fmt_php(bd['total_send_php'])}")
+        out.append(f"**Artist receives:** {fmt_php(bd['artist_php'])}")
+    else:
+        m = str(bd["payment_method"])
+        out.append(f"**Paying in:** USD — **{m}**")
+        out.append(f"**Base price:** {fmt_usd(bd['artist_usd'])}")
+        out.append(
+            f"**Payment fee ({m}, 4.4% + US$0.30):** {fmt_usd(bd['fee_usd'])}"
+        )
+        if bd.get("kofi_note"):
+            out.append("_Fee estimate — may vary by payment method used on Ko-fi._")
+        out.append(f"**Total to send:** {fmt_usd(bd['total_send_usd'])}")
+        out.append(f"**Artist receives:** {fmt_usd(bd['artist_usd'])}")
+    out.append("")
+    out.append(payment_terms_from_total_send(bd))
+    return out
+
+
 async def build_quote_embed(
     guild: discord.Guild,
     member: discord.Member,
@@ -211,6 +323,8 @@ async def build_quote_embed(
     *,
     brand: str | None = None,
     include_tier_comparison: bool = True,
+    pay_currency: str | None = None,
+    payment_method: str | None = None,
 ) -> discord.Embed:
     """Build the main quote embed from compute_quote_totals result."""
     from utils.embeds import PRIMARY
@@ -258,6 +372,17 @@ async def build_quote_embed(
     else:
         lines.append("─────────────────────────────")
         lines.append(f"{'TOTAL':<20} {fmt_php(subtotal)}")
+
+    bd: dict[str, Any] | None = None
+    if pay_currency:
+        pm = payment_method or ("GCash" if pay_currency.upper() == "PHP" else "PayPal")
+        bd = compute_payment_breakdown(
+            artist_php=total_php,
+            artist_usd=float(data["total_usd_approx"]),
+            pay_currency=pay_currency.upper(),
+            payment_method=pm,
+        )
+        lines.extend(format_settlement_lines(bd))
 
     await db.ensure_default_quote_currencies(guild.id)
     cur_rows = await db.list_quote_currencies(guild.id)
@@ -311,7 +436,10 @@ async def build_quote_embed(
                     comp_lines.append(f"**{tname}**         {fmt_php(tot_t)}")
         desc += "\n" + "\n".join(comp_lines)
 
-    desc += "\n\n_Prices reflect today’s price matrix._"
+    footer = "\n\n_Prices reflect today’s price matrix._"
+    if bd is not None:
+        footer += "\n_Processor fee uses PayPal’s common US formula on the USD commission estimate._"
+    desc += footer
 
     emb = discord.Embed(
         title=f"🎨 Commission Quote — {br}",

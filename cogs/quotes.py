@@ -21,6 +21,7 @@ from utils.quote_compute import (
     COMMISSION_TYPES,
     RENDERING_TIERS,
     build_quote_embed,
+    compute_payment_breakdown,
     compute_quote_totals,
     fmt_php,
 )
@@ -72,7 +73,7 @@ class QuoteFlowView(discord.ui.View):
                 )
                 return
             await interaction.response.edit_message(
-                embed=info_embed("Quote — step 2/5", "Pick your **rendering tier**."),
+                embed=info_embed("Quote — step 2/7", "Pick your **rendering tier**."),
                 view=QuoteTierView(self.cog, subj, str(v)),
             )
 
@@ -97,7 +98,7 @@ class QuoteTierView(discord.ui.View):
         async def cb(interaction: discord.Interaction) -> None:
             v = interaction.data.get("values", [""])[0] if interaction.data else ""
             await interaction.response.edit_message(
-                embed=info_embed("Quote — step 3/5", "How many **characters**?"),
+                embed=info_embed("Quote — step 3/7", "How many **characters**?"),
                 view=QuoteCharView(self.cog, target, self.commission_type, str(v)),
             )
 
@@ -129,7 +130,7 @@ class QuoteCharView(discord.ui.View):
         async def cb(interaction: discord.Interaction) -> None:
             v = interaction.data.get("values", [""])[0] if interaction.data else ""
             await interaction.response.edit_message(
-                embed=info_embed("Quote — step 4/5", "**Background** level?"),
+                embed=info_embed("Quote — step 4/7", "**Background** level?"),
                 view=QuoteBgView(self.cog, target, self.commission_type, self.tier, str(v)),
             )
 
@@ -163,7 +164,7 @@ class QuoteBgView(discord.ui.View):
         async def cb(interaction: discord.Interaction) -> None:
             v = interaction.data.get("values", [""])[0] if interaction.data else ""
             await interaction.response.edit_message(
-                embed=info_embed("Quote — step 5/5", "**Rush delivery** add-on?"),
+                embed=info_embed("Quote — step 5/7", "**Rush delivery** add-on?"),
                 view=QuoteRushView(
                     self.cog, target, self.commission_type, self.tier, self.char_key, str(v)
                 ),
@@ -204,6 +205,128 @@ class QuoteRushView(discord.ui.View):
         async def cb(interaction: discord.Interaction) -> None:
             v = interaction.data.get("values", [""])[0] if interaction.data else "0"
             rush = v == "1"
+            await interaction.response.edit_message(
+                embed=info_embed(
+                    "Quote — step 6/7",
+                    "**Which currency will you be paying in?**",
+                ),
+                view=QuoteCurrencyView(
+                    self.cog,
+                    target,
+                    commission_type,
+                    tier,
+                    char_key,
+                    background,
+                    rush,
+                ),
+            )
+
+        sel.callback = cb
+        self.add_item(sel)
+
+
+class QuoteCurrencyView(discord.ui.View):
+    def __init__(
+        self,
+        cog: QuotesCog,
+        target: discord.Member,
+        commission_type: str,
+        tier: str,
+        char_key: str,
+        background: str,
+        rush: bool,
+    ) -> None:
+        super().__init__(timeout=420.0)
+        self.cog = cog
+        self.target = target
+        self.commission_type = commission_type
+        self.tier = tier
+        self.char_key = char_key
+        self.background = background
+        self.rush = rush
+        sel = discord.ui.Select(
+            custom_id="quote_cur",
+            placeholder="Paying currency",
+            options=[
+                discord.SelectOption(label="PHP (GCash)", value="PHP"),
+                discord.SelectOption(label="USD (PayPal / Ko-fi)", value="USD"),
+            ],
+        )
+
+        async def cb(interaction: discord.Interaction) -> None:
+            cur = interaction.data.get("values", [""])[0] if interaction.data else "PHP"
+            if not interaction.guild:
+                return
+            if cur == "PHP":
+                data = await compute_quote_totals(
+                    interaction.guild,
+                    target,
+                    commission_type,
+                    tier,
+                    char_key,
+                    background,
+                    rush_addon=rush,
+                )
+                emb = await build_quote_embed(
+                    interaction.guild,
+                    target,
+                    data,
+                    include_tier_comparison=True,
+                    pay_currency="PHP",
+                    payment_method="GCash",
+                )
+                await interaction.response.edit_message(embed=emb, view=None)
+                return
+            await interaction.response.edit_message(
+                embed=info_embed(
+                    "Quote — step 7/7",
+                    "**Which payment method?** (USD)",
+                ),
+                view=QuoteUsdMethodView(
+                    cog,
+                    target,
+                    commission_type,
+                    tier,
+                    char_key,
+                    background,
+                    rush,
+                ),
+            )
+
+        sel.callback = cb
+        self.add_item(sel)
+
+
+class QuoteUsdMethodView(discord.ui.View):
+    def __init__(
+        self,
+        cog: QuotesCog,
+        target: discord.Member,
+        commission_type: str,
+        tier: str,
+        char_key: str,
+        background: str,
+        rush: bool,
+    ) -> None:
+        super().__init__(timeout=420.0)
+        self.cog = cog
+        self.target = target
+        self.commission_type = commission_type
+        self.tier = tier
+        self.char_key = char_key
+        self.background = background
+        self.rush = rush
+        sel = discord.ui.Select(
+            custom_id="quote_usd_m",
+            placeholder="Payment method",
+            options=[
+                discord.SelectOption(label="PayPal", value="PayPal"),
+                discord.SelectOption(label="Ko-fi", value="Ko-fi"),
+            ],
+        )
+
+        async def cb(interaction: discord.Interaction) -> None:
+            method = interaction.data.get("values", [""])[0] if interaction.data else "PayPal"
             if not interaction.guild:
                 return
             data = await compute_quote_totals(
@@ -216,7 +339,12 @@ class QuoteRushView(discord.ui.View):
                 rush_addon=rush,
             )
             emb = await build_quote_embed(
-                interaction.guild, target, data, include_tier_comparison=True
+                interaction.guild,
+                target,
+                data,
+                include_tier_comparison=True,
+                pay_currency="USD",
+                payment_method=str(method),
             )
             await interaction.response.edit_message(embed=emb, view=None)
 
@@ -241,6 +369,8 @@ class QuotesCog(commands.Cog, name="QuotesCog"):
         *,
         rush_addon: bool = False,
         include_tier_comparison: bool = True,
+        pay_currency: str | None = None,
+        payment_method: str | None = None,
     ) -> discord.Embed:
         data = await compute_quote_totals(
             guild,
@@ -252,7 +382,12 @@ class QuotesCog(commands.Cog, name="QuotesCog"):
             rush_addon=rush_addon,
         )
         return await build_quote_embed(
-            guild, member, data, include_tier_comparison=include_tier_comparison
+            guild,
+            member,
+            data,
+            include_tier_comparison=include_tier_comparison,
+            pay_currency=pay_currency,
+            payment_method=payment_method,
         )
 
     @quote.command(name="calculator", description="Interactive commission price quote (PHP + USD)")
@@ -297,7 +432,7 @@ class QuotesCog(commands.Cog, name="QuotesCog"):
             target = interaction.user
 
         emb = info_embed(
-            "Quote — step 1/5",
+            "Quote — step 1/7",
             "Pick your **commission type**.",
         )
         view = QuoteFlowView(self, target)
@@ -312,11 +447,22 @@ class QuotesCog(commands.Cog, name="QuotesCog"):
         characters="Character count option (leave empty to keep current)",
         background="Background level (leave empty to keep current)",
         rush="Rush add-on (leave unset to keep current)",
+        pay_currency="PHP or USD (leave empty to keep snapshot)",
+        payment_method="GCash / PayPal / Ko-fi (leave empty to keep snapshot)",
     )
     @app_commands.choices(
         tier=[app_commands.Choice(name=t, value=t) for t in RENDERING_TIERS],
         characters=[app_commands.Choice(name=c, value=c) for c in CHAR_OPTIONS],
         background=[app_commands.Choice(name=b, value=b) for b in BG_OPTIONS],
+        pay_currency=[
+            app_commands.Choice(name="PHP", value="PHP"),
+            app_commands.Choice(name="USD", value="USD"),
+        ],
+        payment_method=[
+            app_commands.Choice(name="GCash", value="GCash"),
+            app_commands.Choice(name="PayPal", value="PayPal"),
+            app_commands.Choice(name="Ko-fi", value="Ko-fi"),
+        ],
     )
     @is_staff()
     async def quote_recalculate_cmd(
@@ -326,6 +472,8 @@ class QuotesCog(commands.Cog, name="QuotesCog"):
         characters: str | None,
         background: str | None,
         rush: bool | None,
+        pay_currency: str | None,
+        payment_method: str | None,
     ) -> None:
         if not interaction.guild or not isinstance(interaction.channel, discord.TextChannel):
             await interaction.response.send_message(
@@ -364,6 +512,15 @@ class QuotesCog(commands.Cog, name="QuotesCog"):
         else:
             rush_b = bool(int(rush_b or 0))
 
+        pc = (pay_currency or snap.get("pay_currency") or "PHP").strip().upper()
+        pm_raw = payment_method or snap.get("payment_method")
+        if pc == "PHP":
+            pm = "GCash"
+        else:
+            pm = str(pm_raw or "PayPal")
+            if pm not in ("PayPal", "Ko-fi"):
+                pm = "PayPal"
+
         client = interaction.guild.get_member(int(ticket["client_id"]))
         if not client:
             await interaction.response.send_message(
@@ -382,7 +539,18 @@ class QuotesCog(commands.Cog, name="QuotesCog"):
             rush_addon=bool(rush_b),
         )
         emb = await build_quote_embed(
-            interaction.guild, client, data, include_tier_comparison=False
+            interaction.guild,
+            client,
+            data,
+            include_tier_comparison=False,
+            pay_currency=pc,
+            payment_method=pm,
+        )
+        bd = compute_payment_breakdown(
+            artist_php=float(data["total_php"]),
+            artist_usd=float(data["total_usd_approx"]),
+            pay_currency=pc,
+            payment_method=pm,
         )
         snap_out = {
             "commission_type": ct,
@@ -390,6 +558,11 @@ class QuotesCog(commands.Cog, name="QuotesCog"):
             "char_key": ck,
             "background": bg,
             "rush_addon": bool(rush_b),
+            "pay_currency": pc,
+            "payment_method": pm,
+            "fee_usd": bd.get("fee_usd"),
+            "total_send_php": bd.get("total_send_php"),
+            "total_send_usd": bd.get("total_send_usd"),
         }
         await db.update_ticket_fields(
             interaction.channel.id,

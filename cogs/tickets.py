@@ -24,10 +24,12 @@ from utils.quote_compute import (
     CHAR_OPTIONS,
     RENDERING_TIERS,
     build_quote_embed,
+    compute_payment_breakdown,
     compute_quote_totals,
     fmt_php,
+    fmt_usd,
     installment_eligibility_note,
-    payment_terms_text,
+    payment_terms_from_total_send,
     tat_estimate_text,
     ticket_channel_slug,
 )
@@ -221,7 +223,7 @@ class CommissionTypeSelectView(discord.ui.View):
             await interaction.response.edit_message(
                 embed=info_embed(
                     "Rendering tier",
-                    "Pick the **rendering tier** for your quote (step 2/5).",
+                    "Pick the **rendering tier** for your quote (step 2/7).",
                 ),
                 view=TicketQuoteTierView(
                     self.cog,
@@ -280,7 +282,7 @@ class TicketQuoteTierView(discord.ui.View):
         async def cb(interaction: discord.Interaction) -> None:
             v = interaction.data.get("values", [""])[0] if interaction.data else ""
             await interaction.response.edit_message(
-                embed=info_embed("Characters", "How many **characters**? (step 3/5)"),
+                embed=info_embed("Characters", "How many **characters**? (step 3/7)"),
                 view=TicketQuoteCharView(
                     cog,
                     guild_id,
@@ -324,7 +326,7 @@ class TicketQuoteCharView(discord.ui.View):
         async def cb(interaction: discord.Interaction) -> None:
             v = interaction.data.get("values", [""])[0] if interaction.data else ""
             await interaction.response.edit_message(
-                embed=info_embed("Background", "**Background** level (step 4/5)"),
+                embed=info_embed("Background", "**Background** level (step 4/7)"),
                 view=TicketQuoteBgView(
                     cog,
                     guild_id,
@@ -371,7 +373,7 @@ class TicketQuoteBgView(discord.ui.View):
         async def cb(interaction: discord.Interaction) -> None:
             v = interaction.data.get("values", [""])[0] if interaction.data else ""
             await interaction.response.edit_message(
-                embed=info_embed("Rush delivery", "**Rush** add-on? (step 5/5)"),
+                embed=info_embed("Rush delivery", "**Rush** add-on? (step 5/7)"),
                 view=TicketQuoteRushView(
                     cog,
                     guild_id,
@@ -424,6 +426,142 @@ class TicketQuoteRushView(discord.ui.View):
         async def cb(interaction: discord.Interaction) -> None:
             v = interaction.data.get("values", [""])[0] if interaction.data else "0"
             rush = v == "1"
+            await interaction.response.edit_message(
+                embed=info_embed(
+                    "Paying currency",
+                    "**Which currency will you be paying in?** (step 6/7)",
+                ),
+                view=TicketQuoteCurrencyView(
+                    cog,
+                    guild_id,
+                    button_id,
+                    button_label,
+                    row,
+                    commission_type,
+                    tier,
+                    char_key,
+                    background,
+                    rush,
+                ),
+            )
+
+        sel.callback = cb
+        self.add_item(sel)
+
+
+class TicketQuoteCurrencyView(discord.ui.View):
+    def __init__(
+        self,
+        cog: TicketsCog,
+        guild_id: int,
+        button_id: str,
+        button_label: str,
+        row: dict[str, Any],
+        commission_type: str,
+        tier: str,
+        char_key: str,
+        background: str,
+        rush: bool,
+    ) -> None:
+        super().__init__(timeout=420.0)
+        self.cog = cog
+        self.guild_id = guild_id
+        self.button_id = button_id
+        self.button_label = button_label
+        self._row = row
+        self.commission_type = commission_type
+        self.tier = tier
+        self.char_key = char_key
+        self.background = background
+        self.rush = rush
+        sel = discord.ui.Select(
+            custom_id="tqcur",
+            placeholder="Paying currency",
+            options=[
+                discord.SelectOption(label="PHP (GCash)", value="PHP"),
+                discord.SelectOption(label="USD (PayPal / Ko-fi)", value="USD"),
+            ],
+        )
+
+        async def cb(interaction: discord.Interaction) -> None:
+            cur = interaction.data.get("values", [""])[0] if interaction.data else "PHP"
+            fields = _parse_form_fields_json(self._row.get("form_fields"))
+            if cur == "PHP":
+                modal = CommissionModal(
+                    cog,
+                    guild_id,
+                    button_id,
+                    button_label,
+                    commission_type,
+                    tier,
+                    char_key,
+                    background,
+                    rush,
+                    "PHP",
+                    "GCash",
+                    fields,
+                )
+                await interaction.response.send_modal(modal)
+                return
+            await interaction.response.edit_message(
+                embed=info_embed(
+                    "Payment method",
+                    "**Which payment method?** (USD) — step 7/7",
+                ),
+                view=TicketQuoteUsdMethodView(
+                    cog,
+                    guild_id,
+                    button_id,
+                    button_label,
+                    row,
+                    commission_type,
+                    tier,
+                    char_key,
+                    background,
+                    rush,
+                ),
+            )
+
+        sel.callback = cb
+        self.add_item(sel)
+
+
+class TicketQuoteUsdMethodView(discord.ui.View):
+    def __init__(
+        self,
+        cog: TicketsCog,
+        guild_id: int,
+        button_id: str,
+        button_label: str,
+        row: dict[str, Any],
+        commission_type: str,
+        tier: str,
+        char_key: str,
+        background: str,
+        rush: bool,
+    ) -> None:
+        super().__init__(timeout=420.0)
+        self.cog = cog
+        self.guild_id = guild_id
+        self.button_id = button_id
+        self.button_label = button_label
+        self._row = row
+        self.commission_type = commission_type
+        self.tier = tier
+        self.char_key = char_key
+        self.background = background
+        self.rush = rush
+        sel = discord.ui.Select(
+            custom_id="tq_usd_m",
+            placeholder="Payment method",
+            options=[
+                discord.SelectOption(label="PayPal", value="PayPal"),
+                discord.SelectOption(label="Ko-fi", value="Ko-fi"),
+            ],
+        )
+
+        async def cb(interaction: discord.Interaction) -> None:
+            method = interaction.data.get("values", [""])[0] if interaction.data else "PayPal"
             fields = _parse_form_fields_json(self._row.get("form_fields"))
             modal = CommissionModal(
                 cog,
@@ -435,6 +573,8 @@ class TicketQuoteRushView(discord.ui.View):
                 char_key,
                 background,
                 rush,
+                "USD",
+                str(method),
                 fields,
             )
             await interaction.response.send_modal(modal)
@@ -455,6 +595,8 @@ class CommissionModal(discord.ui.Modal):
         char_key: str,
         background: str,
         rush_addon: bool,
+        pay_currency: str,
+        payment_method: str,
         fields: list[dict[str, Any]],
     ) -> None:
         super().__init__(title="Payment & references")
@@ -467,6 +609,8 @@ class CommissionModal(discord.ui.Modal):
         self.char_key = char_key
         self.background = background
         self.rush_addon = rush_addon
+        self.pay_currency = pay_currency
+        self.payment_method = payment_method
         self._field_labels: list[str] = []
         for i, f in enumerate(fields[:4]):
             lab = str(f.get("label", "Field"))[:45]
@@ -503,6 +647,8 @@ class CommissionModal(discord.ui.Modal):
             char_key=self.char_key,
             background=self.background,
             rush_addon=self.rush_addon,
+            pay_currency=self.pay_currency,
+            payment_method=self.payment_method,
         )
 
 
@@ -1128,6 +1274,8 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         char_key: str,
         background: str,
         rush_addon: bool,
+        pay_currency: str,
+        payment_method: str,
     ) -> None:
         if not interaction.guild:
             return
@@ -1218,6 +1366,16 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         )
         total_php = float(data["total_php"])
         total_usd = float(data["total_usd_approx"])
+        pc = pay_currency.strip().upper()
+        pm = payment_method.strip()
+        if pc == "PHP":
+            pm = "GCash"
+        bd = compute_payment_breakdown(
+            artist_php=total_php,
+            artist_usd=total_usd,
+            pay_currency=pc,
+            payment_method=pm,
+        )
         snap = {
             "commission_type": commission_type,
             "tier": rendering_tier,
@@ -1225,6 +1383,11 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             "background": background,
             "rush_addon": rush_addon,
             "total_php": total_php,
+            "pay_currency": pc,
+            "payment_method": pm,
+            "fee_usd": bd.get("fee_usd"),
+            "total_send_php": bd.get("total_send_php"),
+            "total_send_usd": bd.get("total_send_usd"),
         }
 
         full_answers: dict[str, str] = {
@@ -1233,6 +1396,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             "Characters": char_key,
             "Background": background,
             "Rush": "Yes (+₱520)" if rush_addon else "No",
+            "Paying in": f"{pc} — {pm}",
         }
         full_answers.update(answers)
 
@@ -1258,19 +1422,23 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             pass
 
         q_emb = await build_quote_embed(
-            interaction.guild, member, data, include_tier_comparison=False
+            interaction.guild,
+            member,
+            data,
+            include_tier_comparison=False,
+            pay_currency=pc,
+            payment_method=pm,
         )
         try:
             await ticket_ch.send(embed=q_emb)
         except discord.HTTPException:
             pass
 
-        terms = payment_terms_text(total_php, total_usd)
         tat = tat_estimate_text(rendering_tier, commission_type, rush_addon)
         inst = installment_eligibility_note(commission_type, rendering_tier)
         loyalty_row = await db.get_loyalty(member.id)
         l_count = int(loyalty_row["completed_count"]) if loyalty_row else 0
-        extra_head = f"{terms}\n\n{tat}\n"
+        extra_head = f"{tat}\n"
         if inst:
             extra_head += f"\n{inst}\n"
         extra_head += f"\n**Loyalty:** {l_count} completed order(s) on record.\n"
@@ -1290,13 +1458,29 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         )
         await ticket_ch.send(embed=welcome, view=CloseTicketView())
 
-        # Downpayment / full payment due
-        if total_php > 500 or total_usd > 25:
-            due = total_php / 2.0
-            due_l = f"**50% down payment due now:** {fmt_php(due)} (approx. half of total)."
+        # Downpayment / full payment due (amounts use **total to send** including processor fee)
+        if pc == "PHP":
+            ts = float(bd["total_send_php"] or 0)
+            if ts <= 500:
+                due_l = f"**Full payment due upfront:** {fmt_php(ts)}."
+            else:
+                half = ts / 2.0
+                due_l = (
+                    f"**50% down payment due now:** {fmt_php(half)}. "
+                    f"**Remaining balance:** {fmt_php(half)}."
+                )
+            settle_line = f"**Total to send (incl. fees):** {fmt_php(ts)}"
         else:
-            due = total_php
-            due_l = f"**Full payment due upfront:** {fmt_php(due)}."
+            ts = float(bd["total_send_usd"] or 0)
+            if ts <= 25:
+                due_l = f"**Full payment due upfront:** {fmt_usd(ts)}."
+            else:
+                half = ts / 2.0
+                due_l = (
+                    f"**50% down payment due now:** {fmt_usd(half)}. "
+                    f"**Remaining balance:** {fmt_usd(half)}."
+                )
+            settle_line = f"**Total to send (incl. fees):** {fmt_usd(ts)}"
 
         gcash = await db.get_guild_string_setting(interaction.guild.id, gk.PAYMENT_GCASH_DETAILS)
         pp = await db.get_guild_string_setting(interaction.guild.id, gk.PAYMENT_PAYPAL_LINK)
@@ -1311,7 +1495,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         pay_body = "\n".join(pay_bits) if pay_bits else "_Configure payment text with `/config payment`._"
         dp = discord.Embed(
             title="💳 Awaiting payment",
-            description=f"{due_l}\n\n**Total quoted:** {fmt_php(total_php)} (~${total_usd:,.2f} USD)\n\n{pay_body}",
+            description=f"{due_l}\n\n{settle_line}\n**Artist commission (no fee to you):** {fmt_php(total_php)} (~${total_usd:,.2f} USD est.)\n\n{pay_body}",
             color=PRIMARY,
         )
         try:

@@ -22,7 +22,7 @@ A Discord bot for running a **small art commission shop** in your server: agree 
 
 ## Overview
 
-**Mika Shop** helps you run commissions in Discord: customers use **buttons** and **slash commands** (`/` commands) to open tickets, staff register orders with **`/queue`**, and the bot keeps **HTML transcripts** when a ticket closes. **Only the bot token** is read from your **`.env`** file. **Channels, roles, and payment text (GCash, PayPal, Ko-fi, QR image links)** are set **per server** with **`/serverconfig`** and stored in the database—no payment info in `.env`.
+**Mika Shop** helps you run commissions in Discord: customers use **buttons** and **slash commands** (`/` commands) to open tickets, staff register orders with **`/queue`** or **`/payment confirm`**, and the bot keeps **HTML transcripts** (with optional ticket metadata) when a ticket closes. **Only the bot token** is read from your **`.env`** file. **Channels, roles, and payment text (GCash, PayPal, Ko-fi, QR image links)** are set **per server** with **`/config`** (and the **`/setup`** wizard) and stored in the database—no payment info in `.env`.
 
 ---
 
@@ -30,15 +30,16 @@ A Discord bot for running a **small art commission shop** in your server: agree 
 
 - **Onboarding:** Terms of Service (TOS) panel with an “I agree” button that gives a role.
 - **Shop hours:** Open or close commissions; optional visibility rules on your “Start Here” area.
-- **Tickets:** Private ticket channels under categories you pick; open/close with transcripts.
-- **Orders:** Register orders from a ticket, show them on a **queue channel**, move ticket channels through **Noted → Processing → Done** stages, and use **templates** for wording.
-- **Payments:** A panel with buttons for GCash, PayPal, and Ko-fi (each server sets copy and URLs with **`/serverconfig payment`**).
+- **Tickets:** Private ticket channels under categories you pick; **quote wizard** (tier, characters, background, rush) posts a **PHP + FX** quote from your **price matrix**; welcome text includes **payment terms**, **turnaround estimates**, and optional **installment** hints; channel names can look like **`sr-bu-username`** for easier queue scanning. Optional **NSFW / age gate** per ticket button (requires **age verified** role + verification channel). Open/close with transcripts (optionally including revision and quote totals).
+- **Orders:** Register orders from a ticket with **`/queue`**, or confirm payment with **`/payment confirm`** (same queue pipeline when no order exists yet). Show them on a **queue channel**, move ticket channels through **Noted → Processing → Done** stages, and use **templates** for wording.
+- **Payments:** A panel with buttons for GCash, PayPal, and Ko-fi (each server sets copy and URLs with **`/config payment`** …). Tickets can also show an **awaiting payment** embed with amounts due.
+- **Commission quotes:** Staff maintain **base prices** and add-ons in the database; anyone can run **`/quote calculator`**; staff can **`/quote recalculate`** inside a ticket to re-post an updated quote.
 - **Loyalty:** Track completed orders per client and show milestones.
 - **Vouches:** Dedicated vouch channel behavior and manual vouch logging.
 - **Delivery:** Staff can send a “delivery” DM with a link; history can be listed.
 - **Moderation:** Warn members, DM a notice, optional auto-ban after a set number of warns, warn log channel.
 - **Sticky messages:** Keep a chosen embed reposted at the bottom of a channel.
-- **Server wiring:** Map channels and roles by **picking them in slash commands** (`/serverconfig`).
+- **Server wiring:** Map channels and roles by **picking them in slash commands** (`/setup` wizard or **`/config view`** to audit).
 
 ---
 
@@ -58,11 +59,12 @@ A Discord bot for running a **small art commission shop** in your server: agree 
 ## How the pieces fit together
 
 1. **You** turn the bot on and put **only `BOT_TOKEN`** in `.env` (or your host’s environment).
-2. **You or a manager** runs **`/serverconfig`** so the bot knows **channels, roles, and payment text** for that server.
-3. **Staff** runs **`/setup`** to post panels (tickets, TOS, payment) into the right channels.
-4. **Members** agree to TOS, then **open a ticket** when the shop is open.
-5. **Staff** uses **`/queue`** inside a ticket to create an order and post it to the **queue** list.
-6. **Staff** updates status from menus in the ticket; when done, the client can be nudged toward **vouches** and **drops**.
+2. **You or a manager** runs **`/setup`** (wizard) or maps slots manually and checks **`/config view`** so the bot knows **channels, roles, and payment text** for that server.
+3. **Staff** runs **`/ticketpanel`** / **`/ticketbutton`** and **`/deploy tos`** / **`/deploy payment`** to post panels into the right channels.
+4. **Members** agree to TOS, then **open a ticket** when the shop is open (commission type → quote steps → short form).
+5. **Staff** uses **`/payment confirm`** after payment (registers the order like **`/queue`** if needed) or **`/queue`** directly; then updates status from menus in the ticket.
+6. **Staff** can post **WIP stage** updates (**`/stage`**), log **revisions** (**`/revision log`**), and save **reference links** (**`/references`**).
+7. When done, the client can be nudged toward **vouches** and **drops**.
 
 ---
 
@@ -99,13 +101,14 @@ A Discord bot for running a **small art commission shop** in your server: agree 
 
 Do this **after** the bot is online and invited with enough permissions (see [Discord settings](#discord-settings-your-server-needs)).
 
-1. Run **`/serverconfig show`** to see what is missing (managers only—see [commands](#commands-by-who-can-use-them)).
-2. Use **`/serverconfig channel`**, **`/serverconfig category`**, and **`/serverconfig role`** until every slot you need is filled (queue channel, ticket categories, staff role, TOS role, etc.).
-3. Set **payment** text and URLs with **`/serverconfig payment`** (`gcash_details`, `paypal_link`, `kofi_link`, `gcash_qr`, `paypal_qr`) so the payment buttons work.
+1. Run **`/config view`** to see what is missing (managers only—see [commands](#commands-by-who-can-use-them)).
+2. Use **`/setup`** (interactive wizard) to map **channels, categories, and roles**, or set them through your workflow until every slot you need is filled (queue channel, ticket categories, staff role, TOS role, **optional** age-verified role and verification channel for NSFW ticket types, etc.).
+3. Set **payment** text and URLs with **`/config payment`** subcommands (`gcash_details`, `paypal_link`, `kofi_link`, `gcash_qr`, `paypal_qr`) so the payment buttons and ticket payment embeds work.
 4. Put your TOS text in **`tos.txt`** (in the `bot` folder) if you use the TOS panel.
-5. Staff runs **`/ticketpanel`** (and **`/ticketbutton add`** for each ticket type), plus **`/setup tos`** and **`/setup payment`**, to post the panels into the channels you configured.
+5. Staff configures **quote prices** (`/setprice`, `/quoteextras`, discounts, currencies—see [Quotes](#quotes-and-pricing)) if you want automatic ticket quotes.
+6. Staff runs **`/ticketpanel`** (and **`/ticketbutton add`** for each ticket type), plus **`/deploy tos`** and **`/deploy payment`**, to post the panels into the channels you configured.
 
-**Order matters:** configure **`/serverconfig`** before expecting tickets or queue to work.
+**Order matters:** configure **`/config`** / **`/setup`** before expecting tickets or queue to work.
 
 ---
 
@@ -128,34 +131,47 @@ If something fails with “missing permissions,” give the bot’s role a highe
 
 ## Core features and sub-features
 
-### Server configuration (`/serverconfig`)
+### Server configuration (`/config`)
 
-- **Channels:** Queue, shop status, transcripts, vouches, optional order notifications, Start Here, TOS, payment, warn log.
+- **`/config view`:** Lists channels, categories, roles, payment text/URLs, and a count of quote price rows (managers / staff per bot rules).
+- **`/config reset`:** Clears a chosen group (tickets, queue, shop, payment, channels/roles, or quote pricing) with confirmation.
+- **Channels:** Queue, shop status, transcripts, vouches, optional order notifications, Start Here, TOS, **verification** (optional, for age gate), payment, warn log.
 - **Categories:** New tickets, noted, processing, done (order pipeline).
-- **Roles:** Staff, TOS agreed, commissions open, please vouch.
-- **Payment:** GCash text, PayPal/Ko-fi links, GCash/PayPal QR image URLs (`/serverconfig payment …`).
-- **`/serverconfig show`:** See what is set (including payment previews).
+- **Roles:** Staff, TOS agreed, **age verified** (optional, for NSFW ticket buttons), commissions open, please vouch, Boostie/Reseller (quote discounts).
+- **Payment:** GCash text, PayPal/Ko-fi links, GCash/PayPal QR image URLs (`/config payment …`).
 
 ### Shop
 
 - **`/shop open` / `/shop close`:** Staff toggles whether commissions are open (and can adjust Start Here visibility when configured).
 - **`/shopstatus`:** Anyone can check if the shop is open.
 
+### Quotes and pricing
+
+- **`/quote calculator`:** Interactive quote (commission type → tier → characters → background → rush); shows **PHP** and enabled **foreign currency** lines from your matrix.
+- **`/quote recalculate`:** Staff only, inside an open ticket — re-posts the quote from the saved snapshot (optional overrides).
+- **`/pricelist`:** Shows base **PHP** grid from the database.
+- **Staff:** **`/setprice`**, **`/quoteextras`**, **`/setdiscount`**, **`/setcurrency`** maintain the matrix and quote display options.
+
 ### Tickets and transcripts
 
-- **Open a ticket:** Button on the panel staff posted with **`/ticketpanel`** / **`/ticketbutton`** (requires TOS role + shop open).
-- **Close:** Button in the ticket or **`/close`**; builds an **HTML transcript**, tries to DM the client, and posts a copy to your transcript channel when possible.
+- **Open a ticket:** Button on the panel from **`/ticketpanel`** / **`/ticketbutton`** (requires TOS role + shop open; **optional** age-verified role + verification channel when **`/ticketbutton agegate`** is enabled for that button).
+- **Flow:** Commission type → **rendering tier** → **character count** → **background** → **rush** → short modal (e.g. mode of payment, references, notes). The bot posts a **quote embed**, a **welcome** embed (payment terms, TAT, loyalty count), an **awaiting payment** embed, and a **staff shortcuts** line.
+- **Close:** Button in the ticket or **`/close`**; builds an **HTML transcript** (with optional lines for **revisions** and **quoted total** when stored), tries to DM the client, and posts a copy to your transcript channel when possible.
 
 ### Queue and orders
 
 - **`/queue`:** Staff registers an order from a ticket (handler, buyer, item, price, etc.).
+- **`/payment confirm`:** Staff confirms payment in-ticket; if there is no order yet, registers the same way as **`/queue`**, then marks the ticket **in progress**.
 - **Status menu:** In the ticket, staff can move the order to **Processing** or **Done** (with template messages).
+- **`/stage`:** Staff posts a **WIP stage** embed (sketch → delivered, etc.).
+- **`/revision log`:** Staff logs a revision; after two free revisions, extra revisions add a running **₱200** fee line in the database.
+- **`/references add`** / **`/references view`:** Staff stores and lists **reference URLs** on the ticket row.
 - **Templates:** Staff can override message text (`/settemplate`, `/viewtemplate`, `/listtemplates`, `/resettemplates`).
 - **Loyalty:** **`/loyalty`** and **`/loyaltytop`** show progress and a simple leaderboard.
 
 ### Payments
 
-- Managers set **GCash body text**, **PayPal / Ko-fi links**, and **QR image URLs** with **`/serverconfig payment`** (see **`/serverconfig show`**).
+- Managers set **GCash body text**, **PayPal / Ko-fi links**, and **QR image URLs** with **`/config payment`** (see **`/config view`**).
 - Panel with **GCash / PayPal / Ko-fi** buttons; each shows an ephemeral embed using that server’s saved values.
 
 ### Vouches
@@ -189,6 +205,8 @@ Slash commands are typed with **`/`** in Discord. Only commands that exist for y
 | Command | What it does |
 |--------|----------------|
 | **`/shopstatus`** | Shows if commissions are open or closed. |
+| **`/quote calculator`** | Interactive commission quote from the server’s price matrix (ephemeral). |
+| **`/pricelist`** | Shows base commission prices (**PHP**) from the database. |
 | **`/loyalty`** *member* | Shows loyalty progress for a member. |
 | **`/loyaltytop`** | Top 10 clients by completed orders. |
 | **`/vouches`** *member* | Lists saved vouches for a member. |
@@ -200,15 +218,22 @@ Slash commands are typed with **`/`** in Discord. Only commands that exist for y
 
 ### Staff (your configured **Staff** role)
 
-Staff commands use the role you set in **`/serverconfig role` → Staff**. If that role is missing, staff commands will error until you configure it.
+Staff commands use the role mapped in **`/config view`** as **Staff**. If that role is missing, staff commands will error until you configure it.
 
 | Command | What it does |
 |--------|----------------|
-| **`/ticketpanel`**, **`/ticketbutton`**, **`/ticketform`** | Configure and post the configurable ticket panel (see `/serverconfig show` guide). |
-| **`/setup tos`** | Posts the TOS panel in your **TOS** channel. |
-| **`/setup payment`** | Posts the payment panel in your **payment** channel. |
+| **`/ticketpanel`**, **`/ticketbutton`**, **`/ticketform`** | Configure and post the configurable ticket panel. |
+| **`/ticketbutton agegate`** | Toggle **age verification required** for a ticket button (NSFW). |
+| **`/deploy tos`** | Posts the TOS panel in your **TOS** channel. |
+| **`/deploy payment`** | Posts the payment panel in your **payment** channel. |
 | **`/shop open`**, **`/shop close`** | Opens or closes the shop. |
 | **`/queue`** | Registers an order from a ticket channel. |
+| **`/payment confirm`** | Confirms payment in-ticket and registers on the queue when needed. |
+| **`/quote recalculate`** | Re-posts an updated quote embed in the **current ticket** (uses saved snapshot + optional overrides). |
+| **`/stage`** | Posts a **WIP stage** update in the ticket. |
+| **`/revision log`** | Logs a revision (extra fees after free revisions). |
+| **`/references add`**, **`/references view`** | Save or list reference URLs on the ticket. |
+| **`/setprice`**, **`/quoteextras`**, **`/setdiscount`**, **`/setcurrency`** | Maintain quote matrix and quote display options. |
 | **`/settemplate`**, **`/viewtemplate`**, **`/listtemplates`**, **`/resettemplates`** | Manage custom message templates. |
 | **`/warn`**, **`/warns`**, **`/clearwarn`**, **`/clearallwarns`** | Warning system. |
 | **`/vouch`** | Manually log a vouch. |
@@ -219,17 +244,16 @@ Staff commands use the role you set in **`/serverconfig role` → Staff**. If th
 
 ---
 
-### Server managers (`/serverconfig`)
+### Server managers (`/config` and `/setup`)
 
-You can use **`/serverconfig`** if you have **Administrator**, **Manage Server**, **or** the configured **Staff** role (so managers can bootstrap the staff role).
+Use **`/setup`** for the interactive wizard, or audit settings with **`/config view`**. **`/config`** commands (view, reset, payment text) require **Administrator**, **Manage Server**, or your configured **Staff** role.
 
 | Command | What it does |
 |--------|----------------|
-| **`/serverconfig channel`** | Pick which text channel is used for each feature (queue, vouches, etc.). |
-| **`/serverconfig category`** | Pick categories for tickets and order stages. |
-| **`/serverconfig role`** | Pick roles for staff, TOS, shop open, please vouch. |
-| **`/serverconfig show`** | Lists channels, roles, and payment fields. |
-| **`/serverconfig payment gcash_details`** (and **`paypal_link`**, **`kofi_link`**, **`gcash_qr`**, **`paypal_qr`**) | Set payment copy and URLs for **this server**. |
+| **`/setup`** | Interactive wizard to map channels, categories, and roles. |
+| **`/config view`** | Lists channels, roles, payment fields, and quote row count. |
+| **`/config reset`** | Clears a configuration group (with confirmation). |
+| **`/config payment gcash_details`** (and **`paypal_link`**, **`kofi_link`**, **`gcash_qr`**, **`paypal_qr`**) | Set payment copy and URLs for **this server**. |
 
 ---
 
@@ -253,4 +277,5 @@ For **Render**, Railway, or similar: run **`python main.py`** as the start comma
 
 ## More documentation
 
-Extra technical notes may live under [`docs/README.md`](docs/README.md).
+- [`docs/README.md`](docs/README.md) — index of extra docs.
+- [`docs/TICKETING.md`](docs/TICKETING.md) — ticket system behavior (may lag behind code; prefer this README + `/config view` for current commands).
