@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import discord
@@ -55,6 +56,16 @@ def status_lines_for_guild(
         if wt is not None
         else "**Warn threshold** — _default 3_"
     )
+    wj = str_rows.get(gk.WARN_REASON_TEMPLATES_JSON)
+    if wj and str(wj).strip():
+        try:
+            arr = json.loads(wj)
+            n = len(arr) if isinstance(arr, list) else 0
+        except json.JSONDecodeError:
+            n = 0
+        lines.append(f"**Custom warn reason presets** — {n}")
+    else:
+        lines.append("**Custom warn reason presets** — _none_")
     return lines
 
 

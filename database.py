@@ -736,12 +736,32 @@ async def update_ticket_order(
 async def get_open_ticket_by_user(
     client_id: int, guild_id: int
 ) -> dict[str, Any] | None:
+    """Open ticket for panel flow — excludes warn-appeal-only tickets so appeals don't block commissions."""
     async with aiosqlite.connect(DATABASE_PATH) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
             """
             SELECT * FROM tickets
             WHERE client_id = ? AND guild_id = ? AND closed_at IS NULL
+            AND IFNULL(button_id, '') != 'warn_appeal'
+            ORDER BY opened_at DESC LIMIT 1
+            """,
+            (client_id, guild_id),
+        )
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+
+async def get_open_warn_appeal_ticket(
+    client_id: int, guild_id: int
+) -> dict[str, Any] | None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            """
+            SELECT * FROM tickets
+            WHERE client_id = ? AND guild_id = ? AND closed_at IS NULL
+            AND button_id = 'warn_appeal'
             ORDER BY opened_at DESC LIMIT 1
             """,
             (client_id, guild_id),
@@ -1060,6 +1080,14 @@ async def clear_warns_user(user_id: int) -> int:
         cur = await db.execute("DELETE FROM warns WHERE user_id = ?", (user_id,))
         await db.commit()
         return cur.rowcount
+
+
+async def get_warn(warn_id: int) -> dict[str, Any] | None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT * FROM warns WHERE warn_id = ?", (warn_id,))
+        row = await cur.fetchone()
+        return dict(row) if row else None
 
 
 # --- Vouches ---

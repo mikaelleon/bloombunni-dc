@@ -48,7 +48,7 @@ RESET_GROUP_KEYS: dict[str, tuple[list[str], list[str]]] = {
             gk.VOUCHES_CHANNEL,
             gk.WARN_LOG_CHANNEL,
         ],
-        [],
+        [gk.WARN_REASON_TEMPLATES_JSON],
     ),
 }
 

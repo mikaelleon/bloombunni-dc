@@ -10,6 +10,7 @@ Guild data lives in SQLite: **`guild_settings`** (integer channel/role IDs and n
 - Appends a **Payment panel** section for each key in `gk.PAYMENT_ALL_KEYS` (truncated preview).
 - **Order ID prefix** from `ORDER_ID_PREFIX` (default label if unset: **MIKA**).
 - **Warn threshold** (`WARN_THRESHOLD_KEY`) or “default 3”.
+- **Custom warn reason presets** — count of extra strings (`warn_reason_templates_json`), or “none”.
 - If the guild has **quote base price rows**, appends a line with the **count** of rows.
 - Long output is split into **paged embeds** (`PagedEmbedView`).
 
@@ -33,7 +34,7 @@ Guild data lives in SQLite: **`guild_settings`** (integer channel/role IDs and n
 | `queue` | `QUEUE_CHANNEL`, `ORDER_NOTIFS_CHANNEL`, and string key `ORDER_ID_PREFIX`. |
 | `shop` | TOS channel, shop status channel, TOS agreed role, commissions open role. |
 | `payment` | `PAYMENT_CHANNEL` and **all** `PAYMENT_*` string keys. |
-| `channels_roles` | Staff, Boostie, Reseller, Please vouch roles; vouches channel; warn log. |
+| `channels_roles` | Staff, Boostie, Reseller, Please vouch roles; vouches channel; warn log; **custom warn reason presets** (`warn_reason_templates_json`). |
 | `pricing` | **Entire quote DB for the guild** via `clear_quote_data_for_guild` (not just keys). |
 
 Flow: ephemeral **Confirm reset** / **Cancel** view. Confirm deletes keys or clears pricing; success embed confirms.

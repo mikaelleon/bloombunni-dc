@@ -84,6 +84,11 @@ PAYMENT_ALL_KEYS: tuple[str, ...] = (
 
 # String settings (guild_string_settings)
 ORDER_ID_PREFIX = "order_id_prefix"
+# JSON array of extra guild-specific warn reason strings (merged with bot defaults in /warn autocomplete)
+WARN_REASON_TEMPLATES_JSON = "warn_reason_templates_json"
 
 # Integer settings (guild_settings) — warn threshold override; default 3 in code if unset
 WARN_THRESHOLD_KEY = "warn_threshold"
+
+# Synthetic ticket panel button id for warn appeal tickets (not a real panel button)
+WARN_APPEAL_BUTTON_ID = "warn_appeal"

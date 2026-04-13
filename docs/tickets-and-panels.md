@@ -105,7 +105,12 @@ Description: {due lines from thresholds}
 
 - **`register_ticket_persistent_views`** on startup re-adds **`CloseTicketView`** and each guild’s panel **`View`** for known message IDs.
 
+## Warn appeal channels
+
+Tickets created from the **warn appeal** DM button use `button_id = warn_appeal` and do **not** count toward the “one open commission ticket” check. See [warnings.md](warnings.md).
+
 ## Related docs
 
 - [queue-templates-loyalty.md](queue-templates-loyalty.md) — what happens after **`/payment confirm`**.
 - [quotes-and-pricing.md](quotes-and-pricing.md) — quote math.
+- [warnings.md](warnings.md) — warn appeal tickets and **`/clearwarn`** in-channel.

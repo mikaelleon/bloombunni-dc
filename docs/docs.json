@@ -136,11 +136,21 @@
       "id": "warnings",
       "file": "warnings.md",
       "title": "Warnings",
-      "summary": "Warn with DM and public text, list/clear warns, set threshold, auto-ban at threshold.",
+      "summary": "Reason autocomplete and /warnreason presets; private audit embed to WARN_LOG_CHANNEL; DM appeal button and warn-appeal ticket; clearwarn from appeal channel.",
       "cogModules": ["cogs/warn.py"],
-      "slashCommands": ["/warn", "/warns", "/clearwarn", "/setwarnthreshold", "/clearallwarns"],
-      "related": ["config.md"],
-      "topics": ["warns table", "WARN_THRESHOLD_KEY"]
+      "slashCommands": [
+        "/warn",
+        "/warnreason list",
+        "/warnreason add",
+        "/warnreason remove",
+        "/warnreason reset",
+        "/warns",
+        "/clearwarn",
+        "/setwarnthreshold",
+        "/clearallwarns"
+      ],
+      "related": ["config.md", "tickets-and-panels.md"],
+      "topics": ["warns table", "WARN_THRESHOLD_KEY", "WARN_LOG_CHANNEL", "warn appeal", "warn_reason_templates_json"]
     },
     {
       "id": "stickies",
