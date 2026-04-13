@@ -1,0 +1,226 @@
+{
+  "meta": {
+    "title": "Mika Shop bot documentation bundle",
+    "description": "Structured index derived from markdown files in bot/docs. Edit the .md sources of truth; regenerate or merge manually when docs change.",
+    "version": "1.0.0",
+    "generated": "2026-04-11",
+    "sourceDirectory": "bot/docs",
+    "projectReadme": "../README.md"
+  },
+  "runtime": {
+    "entrypoint": "main.py",
+    "botClass": "MikaBot",
+    "databaseDefaultPath": "bot/bot.db",
+    "extensionLoadOrder": [
+      "cogs.owner_tools",
+      "cogs.config_cmd",
+      "cogs.setup_wizard",
+      "cogs.quotes",
+      "cogs.tickets",
+      "cogs.queue",
+      "cogs.shop",
+      "cogs.vouch",
+      "cogs.warn",
+      "cogs.sticky",
+      "cogs.drop",
+      "cogs.payment"
+    ],
+    "intents": ["default", "message_content", "members"],
+    "persistentViewsOnStartup": ["TOSAgreeView", "PaymentView", "ticket panel views", "CloseTicketView", "OrderStatusView"]
+  },
+  "environment": {
+    "BOT_TOKEN": "Required — Discord bot token (.env)",
+    "SYNC_GUILD_ID": "Optional — immediate guild-scoped slash sync for development"
+  },
+  "documents": [
+    {
+      "id": "readme-index",
+      "file": "README.md",
+      "title": "Bot documentation index",
+      "summary": "Table of contents linking all feature docs; points to project README for operator setup.",
+      "cogModules": [],
+      "slashCommands": [],
+      "related": ["overview-and-core.md"]
+    },
+    {
+      "id": "overview-and-core",
+      "file": "overview-and-core.md",
+      "title": "Overview and core runtime",
+      "summary": "Intents, setup_hook, slash sync (including SYNC_GUILD_ID), on_ready hooks, interaction logging, tree error handling, embed color palette.",
+      "cogModules": ["main.py"],
+      "slashCommands": [],
+      "related": ["config.md", "database-reference.md"],
+      "topics": ["discord.py", "slash sync", "error handling", "embeds"]
+    },
+    {
+      "id": "config",
+      "file": "config.md",
+      "title": "Config",
+      "summary": "Guild configuration: /config view (paged), /config reset groups, /config payment strings for GCash/PayPal/Ko-fi/QR URLs.",
+      "cogModules": ["cogs/config_cmd.py"],
+      "slashCommands": ["/config view", "/config reset", "/config payment gcash_details", "/config payment paypal_link", "/config payment kofi_link", "/config payment gcash_qr", "/config payment paypal_qr"],
+      "related": ["setup-wizard.md", "payment-panel.md", "database-reference.md"],
+      "topics": ["guild_settings", "guild_string_settings", "payment"]
+    },
+    {
+      "id": "setup-wizard",
+      "file": "setup-wizard.md",
+      "title": "Setup wizard",
+      "summary": "Interactive /setup hub: tickets/panels, queue, shop&TOS, payment channel, roles&channels, pricing pointers; /setup_resume.",
+      "cogModules": ["cogs/setup_wizard.py"],
+      "slashCommands": ["/setup", "/setup_resume"],
+      "related": ["config.md", "tickets-and-panels.md", "shop-status-tos.md", "payment-panel.md"],
+      "topics": ["wizard_sessions", "TICKET_FLOW"]
+    },
+    {
+      "id": "quotes-and-pricing",
+      "file": "quotes-and-pricing.md",
+      "title": "Quotes and pricing",
+      "summary": "Quote calculator wizard, recalculate in ticket, pricelist, setprice, quoteextras, setdiscount, setcurrency; quote_compute fees and thresholds.",
+      "cogModules": ["cogs/quotes.py", "utils/quote_compute.py"],
+      "slashCommands": ["/quote calculator", "/quote recalculate", "/pricelist", "/setprice", "/quoteextras", "/setdiscount", "/setcurrency"],
+      "related": ["tickets-and-panels.md", "database-reference.md"],
+      "topics": ["PHP pricing", "processor fees", "FX", "down payment thresholds"]
+    },
+    {
+      "id": "tickets-and-panels",
+      "file": "tickets-and-panels.md",
+      "title": "Tickets and panels",
+      "summary": "Ticket panel embed, ticketbutton/ticketform, deploy tos/payment, user flow (TOS, age gate, shop open), payment confirm, stage, revision, references, close/transcript.",
+      "cogModules": ["cogs/tickets.py"],
+      "slashCommands": ["/ticketpanel", "/ticketbutton add", "/ticketbutton remove", "/ticketbutton list", "/ticketbutton agegate", "/ticketform set", "/ticketform reset", "/ticketform preview", "/ticketform setoptions", "/ticketform resetoptions", "/deploy tos", "/deploy payment", "/payment confirm", "/stage", "/revision log", "/references add", "/references view", "/close"],
+      "related": ["quotes-and-pricing.md", "queue-templates-loyalty.md", "shop-status-tos.md", "payment-panel.md"],
+      "topics": ["ticket_panel", "ticket_buttons", "modal", "transcript"]
+    },
+    {
+      "id": "queue-templates-loyalty",
+      "file": "queue-templates-loyalty.md",
+      "title": "Queue, templates, and loyalty",
+      "summary": "Order registration, queue embeds, OrderStatusView, message template overrides, loyalty milestones, order ID prefix.",
+      "cogModules": ["cogs/queue.py"],
+      "slashCommands": ["/queue", "/settemplate", "/viewtemplate", "/resettemplates", "/listtemplates", "/loyalty", "/setorderprefix", "/loyaltytop"],
+      "related": ["tickets-and-panels.md", "drops.md"],
+      "topics": ["orders", "message_templates", "loyalty"]
+    },
+    {
+      "id": "shop-status-tos",
+      "file": "shop-status-tos.md",
+      "title": "Shop status and TOS",
+      "summary": "/shop open|close, /shopstatus, TOS agree button, deploy tos; gates ticket creation with shop DB state.",
+      "cogModules": ["cogs/shop.py"],
+      "slashCommands": ["/shop open", "/shop close", "/shopstatus"],
+      "related": ["tickets-and-panels.md", "config.md"],
+      "topics": ["shop_state", "persist_panels", "TOSAgreeView"]
+    },
+    {
+      "id": "payment-panel",
+      "file": "payment-panel.md",
+      "title": "Payment panel",
+      "summary": "/deploy payment posts Mode of Payment embed with GCash/PayPal/Ko-fi buttons; PaymentView ephemerals.",
+      "cogModules": ["cogs/payment.py"],
+      "slashCommands": ["/deploy payment"],
+      "related": ["config.md", "tickets-and-panels.md"],
+      "topics": ["PaymentView", "PAYMENT_ALL_KEYS"]
+    },
+    {
+      "id": "vouches",
+      "file": "vouches.md",
+      "title": "Vouches",
+      "summary": "Vouches channel auto-log, manual /vouch, /vouches pager; PlsVouch role removal.",
+      "cogModules": ["cogs/vouch.py"],
+      "slashCommands": ["/vouch", "/vouches"],
+      "related": ["queue-templates-loyalty.md"],
+      "topics": ["vouches table", "PLEASE_VOUCH_ROLE"]
+    },
+    {
+      "id": "warnings",
+      "file": "warnings.md",
+      "title": "Warnings",
+      "summary": "Warn with DM and public text, list/clear warns, set threshold, auto-ban at threshold.",
+      "cogModules": ["cogs/warn.py"],
+      "slashCommands": ["/warn", "/warns", "/clearwarn", "/setwarnthreshold", "/clearallwarns"],
+      "related": ["config.md"],
+      "topics": ["warns table", "WARN_THRESHOLD_KEY"]
+    },
+    {
+      "id": "stickies",
+      "file": "stickies.md",
+      "title": "Stickies",
+      "summary": "Sticky embed repost after user messages; CRUD commands and cache refresh.",
+      "cogModules": ["cogs/sticky.py"],
+      "slashCommands": ["/sticky", "/stickyupdate", "/unsticky", "/stickies", "/stickypreview"],
+      "related": ["overview-and-core.md"],
+      "topics": ["sticky_messages"]
+    },
+    {
+      "id": "drops",
+      "file": "drops.md",
+      "title": "Drops",
+      "summary": "Staff /drop DMs delivery link; drophistory; optional completion DM from queue completion.",
+      "cogModules": ["cogs/drop.py"],
+      "slashCommands": ["/drop", "/drophistory"],
+      "related": ["queue-templates-loyalty.md"],
+      "topics": ["drops table"]
+    },
+    {
+      "id": "owner-tools",
+      "file": "owner-tools.md",
+      "title": "Owner tools",
+      "summary": "Guild owner-only /purge_bot_dms to delete bot-authored messages in a user's DM channel.",
+      "cogModules": ["cogs/owner_tools.py"],
+      "slashCommands": ["/purge_bot_dms"],
+      "related": [],
+      "topics": ["guild owner"]
+    },
+    {
+      "id": "database-reference",
+      "file": "database-reference.md",
+      "title": "Database reference",
+      "summary": "SQLite tables: tickets, orders, guild settings, quote tables, panels, stickies, etc.",
+      "cogModules": ["database.py"],
+      "slashCommands": [],
+      "related": ["config.md", "tickets-and-panels.md"],
+      "topics": ["sqlite", "migrations"]
+    },
+    {
+      "id": "ticketing-legacy",
+      "file": "TICKETING.md",
+      "title": "Ticketing system (legacy)",
+      "summary": "Older narrative doc; superseded by tickets-and-panels.md and config.md for current commands.",
+      "cogModules": ["cogs/tickets.py"],
+      "slashCommands": [],
+      "related": ["tickets-and-panels.md", "config.md"],
+      "legacy": true,
+      "topics": ["ticketing"]
+    }
+  ],
+  "sqlTables": [
+    { "name": "tickets", "purpose": "Per-channel ticket records, quotes, status, revisions, references" },
+    { "name": "orders", "purpose": "Queue orders linked to ticket channels" },
+    { "name": "warns", "purpose": "Moderation warns" },
+    { "name": "vouches", "purpose": "Client vouches" },
+    { "name": "loyalty", "purpose": "Completed order counts per client" },
+    { "name": "tos_agreements", "purpose": "TOS button agreement log" },
+    { "name": "shop_state", "purpose": "Global commissions open/closed" },
+    { "name": "queue_message", "purpose": "Legacy queue pointer" },
+    { "name": "drops", "purpose": "Logged delivery drops" },
+    { "name": "message_templates", "purpose": "DB overrides for templates.json" },
+    { "name": "persist_panels", "purpose": "TOS, shop status, payment panel message locations" },
+    { "name": "sticky_messages", "purpose": "Sticky embed config per channel" },
+    { "name": "guild_settings", "purpose": "Integer guild key/value map" },
+    { "name": "guild_string_settings", "purpose": "String guild key/value map" },
+    { "name": "ticket_panel", "purpose": "Ticket panel embed location and copy" },
+    { "name": "ticket_buttons", "purpose": "Panel button definitions" },
+    { "name": "quote_guild_settings", "purpose": "Quote extras and brand" },
+    { "name": "quote_base_price", "purpose": "PHP price matrix" },
+    { "name": "quote_role_discount", "purpose": "Boostie/reseller discounts" },
+    { "name": "quote_currency", "purpose": "Optional FX lines on quotes" },
+    { "name": "wizard_sessions", "purpose": "Setup wizard bookkeeping" },
+    { "name": "guild_flags", "purpose": "e.g. setup_hint_sent" }
+  ],
+  "checks": {
+    "can_manage_server_config": "Administrator OR Manage Server OR staff role (utils/checks.py)",
+    "is_staff": "Must have mapped STAFF_ROLE",
+    "is_guild_owner": "guild.owner_id only"
+  }
+}
