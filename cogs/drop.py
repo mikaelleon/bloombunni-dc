@@ -68,21 +68,46 @@ class DropCog(commands.Cog, name="DropCog"):
         mention = f"<#{vid}>" if vid else "#vouches"
         emb = delivery_ready_embed(mention)
         view = DropLinkView(link)
+        fallback_ticket_posted = False
         try:
             await member.send(embed=emb, view=view)
         except discord.Forbidden:
+            # P1 fallback: post delivery info in linked ticket when DMs are blocked.
+            if order_id and interaction.guild:
+                o = await db.get_order(order_id)
+                if o:
+                    ch = interaction.guild.get_channel(int(o["ticket_channel_id"]))
+                    if isinstance(ch, discord.TextChannel):
+                        await ch.send(
+                            embed=info_embed(
+                                "Delivery fallback (DM failed)",
+                                f"{member.mention} DMs are closed. Delivery link posted here instead:\n{link}",
+                            ),
+                            view=view,
+                        )
+                        fallback_ticket_posted = True
+            if not fallback_ticket_posted:
+                await interaction.followup.send(
+                    embed=user_warn(
+                        "DM blocked",
+                        "Couldn’t DM this user. Deliver link manually and ask them to allow DMs from server members.",
+                    ),
+                    ephemeral=True,
+                )
+                return
+        await db.insert_drop(order_id, member.id, link)
+        if fallback_ticket_posted:
             await interaction.followup.send(
-                embed=user_warn(
-                    "DM blocked",
-                    "Couldn’t DM this user. Deliver the link manually and ask them to allow DMs from server members.",
+                embed=success_embed(
+                    "Fallback sent",
+                    f"DM failed, but delivery link was posted in linked ticket and logged for {member.mention}.",
                 ),
                 ephemeral=True,
             )
-            return
-        await db.insert_drop(order_id, member.id, link)
-        await interaction.followup.send(
-            embed=success_embed("Sent", f"Drop logged for {member.mention}."), ephemeral=True
-        )
+        else:
+            await interaction.followup.send(
+                embed=success_embed("Sent", f"Drop logged for {member.mention}."), ephemeral=True
+            )
         if order_id and interaction.guild:
             o = await db.get_order(order_id)
             if o:

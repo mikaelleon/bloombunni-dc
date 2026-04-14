@@ -1242,11 +1242,20 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
 
         existing = await db.get_open_ticket_by_user(interaction.user.id, interaction.guild.id)
         if existing:
-            await interaction.response.send_message(
-                f"You already have an open ticket at <#{existing['channel_id']}>.",
-                ephemeral=True,
-            )
-            return
+            existing_channel_id = int(existing["channel_id"])
+            ch = interaction.guild.get_channel(existing_channel_id)
+            if ch is None:
+                # Stale DB row (channel deleted manually) — clear and allow a new ticket.
+                await db.delete_ticket_by_channel(existing_channel_id)
+            else:
+                await interaction.response.send_message(
+                    embed=user_warn(
+                        "Open ticket already exists",
+                        f"You already have an open ticket at <#{existing_channel_id}>. Please continue there.",
+                    ),
+                    ephemeral=True,
+                )
+                return
 
         emb = info_embed(
             "Commission type",

@@ -345,6 +345,61 @@ class ConfigCog(commands.Cog, name="ConfigCog"):
         emb.add_field(name="Summary", value=summary, inline=False)
         await interaction.response.send_message(embed=emb, ephemeral=True)
 
+    @config.command(
+        name="progress",
+        description="Show setup completion progress checklist",
+    )
+    @can_manage_server_config()
+    async def config_progress(self, interaction: discord.Interaction) -> None:
+        if not interaction.guild:
+            return
+        guild = interaction.guild
+        rows = await db.list_guild_settings(guild.id)
+        str_rows = await db.list_guild_string_settings(guild.id)
+
+        required_checks: list[tuple[bool, str]] = []
+        optional_checks: list[tuple[bool, str]] = []
+
+        def _role_ok(key: str) -> bool:
+            rid = rows.get(key)
+            return bool(rid and guild.get_role(int(rid)))
+
+        def _chan_ok(key: str) -> bool:
+            cid = rows.get(key)
+            return bool(cid and guild.get_channel(int(cid)))
+
+        required_checks.append((True, "Bot token and environment"))
+        required_checks.append((_role_ok(gk.STAFF_ROLE), "Staff role configured"))
+        required_checks.append((_chan_ok(gk.TICKET_CATEGORY), "Ticket category set"))
+        required_checks.append((_role_ok(gk.TOS_AGREED_ROLE), "TOS role set"))
+        required_checks.append((bool(await db.get_persist_panel("tos")), "TOS panel deployed"))
+        required_checks.append((_chan_ok(gk.QUEUE_CHANNEL), "Queue channel set"))
+
+        payment_ready = any(str_rows.get(k, "").strip() for k in gk.PAYMENT_ALL_KEYS)
+        required_checks.append((payment_ready, "At least one payment method configured"))
+
+        optional_checks.append((_chan_ok(gk.TRANSCRIPT_CHANNEL), "Transcript channel set"))
+        optional_checks.append((_chan_ok(gk.WARN_LOG_CHANNEL), "Warn log channel set"))
+        optional_checks.append((_chan_ok(gk.ORDER_NOTIFS_CHANNEL), "Order notifications channel set"))
+
+        lines: list[str] = []
+        done_required = 0
+        for ok, label in required_checks:
+            if ok:
+                done_required += 1
+                lines.append(f"✅ {label}")
+            else:
+                lines.append(f"❌ {label}")
+        lines.append("")
+        for ok, label in optional_checks:
+            lines.append(f"✅ {label}" if ok else f"⚠️ {label}")
+
+        total_required = len(required_checks)
+        progress_line = f"Progress: **{done_required} / {total_required}** required steps complete."
+        emb = info_embed("Setup progress — Mika Shop", "\n".join(lines)[:3900])
+        emb.add_field(name="Summary", value=progress_line + "\nRun `/setup` to continue.", inline=False)
+        await interaction.response.send_message(embed=emb, ephemeral=True)
+
     @config.command(name="reset", description="Clear one configuration group (requires confirmation)")
     @app_commands.describe(group="Which group to clear")
     @app_commands.choices(
