@@ -216,6 +216,18 @@ If something fails with “missing permissions,” give the bot’s role a highe
 
 - Staff sets an embed that the bot **reposts** so it stays at the bottom of a channel (`/sticky`, `/stickyupdate`, `/unsticky`, `/stickies`, `/stickypreview`).
 
+### Planned core systems (unimplemented)
+
+The following systems are documented in `plans/` and are **not implemented yet**:
+
+- [ ] **MYO system** (`plans/01_MYO_SYSTEM.md`) - **0%**
+- [ ] **Batch and slot system** (`plans/02_BATCH_SLOT_SYSTEM.md`) - **0%**
+- [ ] **Currency system (EC/PC)** (`plans/03_CURRENCY_SYSTEM.md`) - **0%**
+- [ ] **Gacha system** (`plans/04_GACHA_SYSTEM.md`) - **0%**
+- [ ] **Casino minigames** (`plans/05_CASINO_MINIGAMES.md`) - **0%**
+- [ ] **Collectible system** (`plans/06_COLLECTIBLE_SYSTEM.md`) - **0%**
+- [ ] **MYO content/config tooling** (`plans/07_MYO_CONTENT_CONFIG.md`) - **0%**
+
 ---
 
 ## Commands by who can use them
