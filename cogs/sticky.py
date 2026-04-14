@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import discord
@@ -115,6 +116,17 @@ class StickyCog(commands.Cog, name="StickyCog"):
         row = await db.get_sticky(cid)
         if not row:
             return
+        if bool(row.get("paused", 0)):
+            return
+        cooldown = max(1, int(row.get("cooldown_seconds") or 2))
+        last_repost_at = row.get("last_repost_at")
+        if last_repost_at:
+            try:
+                last_dt = datetime.fromisoformat(str(last_repost_at))
+                if datetime.now(timezone.utc) - last_dt < timedelta(seconds=cooldown):
+                    return
+            except Exception:
+                pass
 
         lock = self._lock_for(cid)
         async with lock:
@@ -144,6 +156,7 @@ class StickyCog(commands.Cog, name="StickyCog"):
                 log.warning("Sticky: cannot send in channel %s", cid)
                 return
 
+            await db.patch_sticky(cid, {"last_repost_at": datetime.now(timezone.utc).isoformat()})
             await db.set_sticky_last_message_id(cid, new_msg.id)
 
     @app_commands.command(name="sticky", description="Set a sticky embed at the bottom of a channel (staff)")
@@ -351,6 +364,49 @@ class StickyCog(commands.Cog, name="StickyCog"):
         )
         await interaction.followup.send(
             embeds=[header, emb_before, emb_after],
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="stickypause", description="Pause or resume sticky reposting in channel (staff)")
+    @app_commands.describe(channel="Channel with sticky", paused="Pause true/false")
+    @is_staff()
+    async def stickypause(
+        self,
+        interaction: discord.Interaction,
+        channel: discord.TextChannel,
+        paused: bool,
+    ) -> None:
+        ok = await db.set_sticky_pause(channel.id, paused)
+        if not ok:
+            await interaction.response.send_message(
+                embed=user_hint("No sticky here", "There is no sticky configured for that channel."),
+                ephemeral=True,
+            )
+            return
+        await self.refresh_sticky_cache()
+        await interaction.response.send_message(
+            embed=info_embed("Sticky state", f"{channel.mention} reposting is now **{'paused' if paused else 'active'}**."),
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="stickycooldown", description="Set sticky repost cooldown in seconds (staff)")
+    @app_commands.describe(channel="Channel with sticky", seconds="Minimum seconds between reposts")
+    @is_staff()
+    async def stickycooldown(
+        self,
+        interaction: discord.Interaction,
+        channel: discord.TextChannel,
+        seconds: app_commands.Range[int, 1, 3600],
+    ) -> None:
+        ok = await db.set_sticky_cooldown(channel.id, int(seconds))
+        if not ok:
+            await interaction.response.send_message(
+                embed=user_hint("No sticky here", "There is no sticky configured for that channel."),
+                ephemeral=True,
+            )
+            return
+        await interaction.response.send_message(
+            embed=info_embed("Sticky cooldown", f"Set cooldown for {channel.mention} to **{int(seconds)}s**."),
             ephemeral=True,
         )
 

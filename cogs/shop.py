@@ -94,15 +94,19 @@ class ShopCog(commands.Cog, name="ShopCog"):
         when = st.get("last_toggled") or "—"
         by = st.get("toggled_by")
         who = f"<@{by}>" if by else "—"
+        reason = (st.get("close_reason") or "").strip()
         if open_:
             return discord.Embed(
                 title="✅ Commissions OPEN",
                 description=f"Last toggled: {when}\nBy: {who}",
                 color=SUCCESS,
             )
+        desc = f"Last toggled: {when}\nBy: {who}"
+        if reason:
+            desc += f"\nReason: {reason[:500]}"
         return discord.Embed(
             title="🔴 Commissions CLOSED",
-            description=f"Last toggled: {when}\nBy: {who}",
+            description=desc,
             color=DANGER,
         )
 
@@ -175,8 +179,9 @@ class ShopCog(commands.Cog, name="ShopCog"):
             )
 
     @shop.command(name="close", description="Close commissions (staff)")
+    @app_commands.describe(reason="Optional public reason shown in shop status")
     @is_staff()
-    async def shop_close(self, interaction: discord.Interaction) -> None:
+    async def shop_close(self, interaction: discord.Interaction, reason: str | None = None) -> None:
         await interaction.response.defer(ephemeral=True)
         if not interaction.guild:
             await interaction.followup.send(
@@ -185,7 +190,7 @@ class ShopCog(commands.Cog, name="ShopCog"):
             )
             return
         try:
-            await db.set_shop_state(False, interaction.user.id)
+            await db.set_shop_state(False, interaction.user.id, reason)
             st = await db.get_shop_state()
             emb = self._embed(st)
             await self._apply_status_embed(interaction, emb)
@@ -223,12 +228,31 @@ class ShopCog(commands.Cog, name="ShopCog"):
         st = await db.get_shop_state()
         open_ = bool(st.get("is_open", 0))
         await interaction.response.send_message(
-            embed=info_embed(
-                "Shop status",
-                "✅ **Open**" if open_ else "🔴 **Closed**",
-            ),
+            embed=self._embed(st),
             ephemeral=True,
         )
+
+    @app_commands.command(name="tosstats", description="Show TOS agreement stats (staff)")
+    @is_staff()
+    async def tosstats_cmd(self, interaction: discord.Interaction) -> None:
+        stats = await db.tos_stats()
+        emb = info_embed(
+            "TOS agreement stats",
+            (
+                f"Current version: **v{stats['version']}**\n"
+                f"Total agreements: **{stats['total']}**\n"
+                f"Current version users: **{stats['current']}**\n"
+                f"Outdated users: **{stats['outdated']}**\n"
+                f"Agreements in last 7d: **{stats['week']}**"
+            ),
+        )
+        if stats.get("last_user"):
+            emb.add_field(
+                name="Last agreement",
+                value=f"<@{stats['last_user']}> at `{stats.get('last_at') or '—'}`",
+                inline=False,
+            )
+        await interaction.response.send_message(embed=emb, ephemeral=True)
 
     @app_commands.command(
         name="tosversion",

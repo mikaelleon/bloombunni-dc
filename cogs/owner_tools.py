@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import aiosqlite
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -240,6 +241,146 @@ class OwnerToolsCog(commands.Cog, name="OwnerToolsCog"):
             return
         await interaction.followup.send(
             embed=success_embed("Backup sent", "Check your DMs for the database file."),
+            ephemeral=True,
+        )
+
+    @db_group.command(name="slowqueries", description="Show top recent slow DB queries")
+    @is_guild_owner()
+    async def db_slowqueries(self, interaction: discord.Interaction) -> None:
+        rows = await db.list_recent_slow_queries(10)
+        if not rows:
+            await interaction.response.send_message(
+                embed=user_hint("No slow queries", "No query exceeded threshold yet."),
+                ephemeral=True,
+            )
+            return
+        lines = [
+            f"`{r['elapsed_ms']:.1f}ms` `{r['query_name']}` at `{r['created_at']}`"
+            for r in rows
+        ]
+        await interaction.response.send_message(
+            embed=success_embed("Slow queries (top 10)", "\n".join(lines)),
+            ephemeral=True,
+        )
+
+    async def _db_health_snapshot(self) -> dict[str, int]:
+        out = {"orphan_orders": 0, "stale_wizard_sessions": 0, "duplicate_panels": 0}
+        async with aiosqlite.connect(config.DATABASE_PATH) as conn:
+            cur = await conn.execute(
+                """
+                SELECT COUNT(*) FROM orders o
+                WHERE o.ticket_channel_id IS NULL
+                   OR NOT EXISTS (
+                       SELECT 1 FROM tickets t
+                       WHERE t.channel_id = o.ticket_channel_id
+                         AND t.deleted_at IS NULL
+                   )
+                """
+            )
+            out["orphan_orders"] = int((await cur.fetchone() or [0])[0])
+            cur = await conn.execute(
+                "SELECT COUNT(*) FROM wizard_sessions WHERE updated_at < ?",
+                ((datetime.now(timezone.utc) - timedelta(hours=24)).isoformat(),),
+            )
+            out["stale_wizard_sessions"] = int((await cur.fetchone() or [0])[0])
+            cur = await conn.execute(
+                "SELECT COUNT(*) FROM (SELECT panel, COUNT(*) c FROM persist_panels GROUP BY panel HAVING c > 1)"
+            )
+            out["duplicate_panels"] = int((await cur.fetchone() or [0])[0])
+        return out
+
+    @db_group.command(name="check", description="Run database health audit")
+    @is_guild_owner()
+    async def db_check(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        snap = await self._db_health_snapshot()
+        broken_panel_refs = 0
+        orphan_ticket_records = 0
+
+        async with aiosqlite.connect(config.DATABASE_PATH) as conn:
+            conn.row_factory = aiosqlite.Row
+            cur = await conn.execute("SELECT channel_id FROM tickets WHERE closed_at IS NULL AND deleted_at IS NULL")
+            ticket_rows = await cur.fetchall()
+            for r in ticket_rows:
+                ch = self.bot.get_channel(int(r["channel_id"]))
+                if ch is None:
+                    orphan_ticket_records += 1
+            cur = await conn.execute("SELECT channel_id, message_id FROM persist_panels")
+            panel_rows = await cur.fetchall()
+            for r in panel_rows:
+                ch = self.bot.get_channel(int(r["channel_id"]))
+                if not isinstance(ch, discord.TextChannel):
+                    broken_panel_refs += 1
+                    continue
+                try:
+                    await ch.fetch_message(int(r["message_id"]))
+                except discord.HTTPException:
+                    broken_panel_refs += 1
+
+        text = (
+            "Database Health Check\n\n"
+            f"✅ Schema integrity: OK\n"
+            f"{'✅' if orphan_ticket_records == 0 else '⚠️'} Orphaned ticket records: {orphan_ticket_records}\n"
+            f"{'✅' if snap['orphan_orders'] == 0 else '⚠️'} Orphaned orders: {snap['orphan_orders']}\n"
+            f"{'✅' if snap['duplicate_panels'] == 0 else '⚠️'} Duplicate panel records: {snap['duplicate_panels']}\n"
+            f"{'✅' if snap['stale_wizard_sessions'] == 0 else '⚠️'} Stale wizard sessions: {snap['stale_wizard_sessions']}\n"
+            f"{'✅' if broken_panel_refs == 0 else '⚠️'} Broken panel pointers: {broken_panel_refs}\n\n"
+            "Run `/db clean` to remove safe flagged records."
+        )
+        await interaction.followup.send(embed=success_embed("DB health", text), ephemeral=True)
+
+    @db_group.command(name="clean", description="Clean safe orphan/stale DB records")
+    @is_guild_owner()
+    async def db_clean(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        removed_orphan_orders = 0
+        removed_stale_wizard = 0
+        removed_broken_panels = 0
+
+        async with aiosqlite.connect(config.DATABASE_PATH) as conn:
+            cur = await conn.execute(
+                """
+                DELETE FROM orders
+                WHERE ticket_channel_id IS NULL
+                   OR NOT EXISTS (
+                       SELECT 1 FROM tickets t
+                       WHERE t.channel_id = orders.ticket_channel_id
+                         AND t.deleted_at IS NULL
+                   )
+                """
+            )
+            removed_orphan_orders = int(cur.rowcount or 0)
+            cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+            cur = await conn.execute("DELETE FROM wizard_sessions WHERE updated_at < ?", (cutoff,))
+            removed_stale_wizard = int(cur.rowcount or 0)
+
+            conn.row_factory = aiosqlite.Row
+            cur = await conn.execute("SELECT rowid, channel_id, message_id FROM persist_panels")
+            panel_rows = await cur.fetchall()
+            for r in panel_rows:
+                ch = self.bot.get_channel(int(r["channel_id"]))
+                bad = False
+                if not isinstance(ch, discord.TextChannel):
+                    bad = True
+                else:
+                    try:
+                        await ch.fetch_message(int(r["message_id"]))
+                    except discord.HTTPException:
+                        bad = True
+                if bad:
+                    await conn.execute("DELETE FROM persist_panels WHERE rowid = ?", (int(r["rowid"]),))
+                    removed_broken_panels += 1
+            await conn.commit()
+
+        await interaction.followup.send(
+            embed=success_embed(
+                "DB clean done",
+                (
+                    f"Removed orphaned orders: **{removed_orphan_orders}**\n"
+                    f"Removed stale wizard sessions: **{removed_stale_wizard}**\n"
+                    f"Removed broken panel pointers: **{removed_broken_panels}**"
+                ),
+            ),
             ephemeral=True,
         )
 

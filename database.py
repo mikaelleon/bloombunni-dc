@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+import time
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import aiosqlite
@@ -13,6 +14,23 @@ from config import DATABASE_PATH
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+_SLOW_QUERY_THRESHOLD_MS = 200.0
+
+
+async def _record_slow_query(name: str, elapsed_ms: float) -> None:
+    if elapsed_ms < _SLOW_QUERY_THRESHOLD_MS:
+        return
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """
+            INSERT INTO slow_query_events (query_name, elapsed_ms, created_at)
+            VALUES (?, ?, ?)
+            """,
+            (name[:120], float(elapsed_ms), _utc_now()),
+        )
+        await db.commit()
 
 
 async def _ensure_tickets_schema(db: aiosqlite.Connection) -> None:
@@ -306,6 +324,37 @@ async def _ensure_ticket_ops_schema(db: aiosqlite.Connection) -> None:
         await db.execute("ALTER TABLE tickets ADD COLUMN assigned_staff_id INTEGER")
 
 
+async def _ensure_shop_state_reason(db: aiosqlite.Connection) -> None:
+    cur = await db.execute("PRAGMA table_info(shop_state)")
+    cols = {row[1] for row in await cur.fetchall()}
+    if "close_reason" not in cols:
+        await db.execute("ALTER TABLE shop_state ADD COLUMN close_reason TEXT")
+
+
+async def _ensure_sticky_p3_schema(db: aiosqlite.Connection) -> None:
+    cur = await db.execute("PRAGMA table_info(sticky_messages)")
+    cols = {row[1] for row in await cur.fetchall()}
+    if "paused" not in cols:
+        await db.execute("ALTER TABLE sticky_messages ADD COLUMN paused INTEGER DEFAULT 0")
+    if "cooldown_seconds" not in cols:
+        await db.execute("ALTER TABLE sticky_messages ADD COLUMN cooldown_seconds INTEGER DEFAULT 2")
+    if "last_repost_at" not in cols:
+        await db.execute("ALTER TABLE sticky_messages ADD COLUMN last_repost_at TEXT")
+
+
+async def _ensure_slow_query_schema(db: aiosqlite.Connection) -> None:
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS slow_query_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            query_name TEXT NOT NULL,
+            elapsed_ms REAL NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+
+
 async def _migration_applied(db: aiosqlite.Connection, version: int) -> bool:
     cur = await db.execute(
         "SELECT 1 FROM schema_migrations WHERE version = ? LIMIT 1",
@@ -531,6 +580,9 @@ async def init_db() -> None:
         await _run_migration(db, 8, "ensure_soft_delete_columns", _ensure_soft_delete_columns)
         await _run_migration(db, 9, "ensure_config_audit_schema", _ensure_config_audit_schema)
         await _run_migration(db, 10, "ensure_ticket_ops_schema", _ensure_ticket_ops_schema)
+        await _run_migration(db, 11, "ensure_shop_state_reason", _ensure_shop_state_reason)
+        await _run_migration(db, 12, "ensure_sticky_p3_schema", _ensure_sticky_p3_schema)
+        await _run_migration(db, 13, "ensure_slow_query_schema", _ensure_slow_query_schema)
         await db.commit()
 
 
@@ -821,6 +873,7 @@ async def set_order_queue_message_id(order_id: str, queue_message_id: int) -> No
 
 
 async def get_order(order_id: str) -> dict[str, Any] | None:
+    t0 = time.perf_counter()
     async with aiosqlite.connect(DATABASE_PATH) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
@@ -828,7 +881,9 @@ async def get_order(order_id: str) -> dict[str, Any] | None:
             (order_id,),
         )
         row = await cur.fetchone()
-        return dict(row) if row else None
+        out = dict(row) if row else None
+    await _record_slow_query("get_order", (time.perf_counter() - t0) * 1000.0)
+    return out
 
 
 async def update_order_status(order_id: str, status: str) -> None:
@@ -843,6 +898,7 @@ async def update_order_status(order_id: str, status: str) -> None:
 
 async def list_orders_for_status_views() -> list[dict[str, Any]]:
     """Orders that may still have a status dropdown in the ticket channel."""
+    t0 = time.perf_counter()
     async with aiosqlite.connect(DATABASE_PATH) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
@@ -854,7 +910,9 @@ async def list_orders_for_status_views() -> list[dict[str, Any]]:
             """,
         )
         rows = await cur.fetchall()
-        return [dict(r) for r in rows]
+        out = [dict(r) for r in rows]
+    await _record_slow_query("list_orders_for_status_views", (time.perf_counter() - t0) * 1000.0)
+    return out
 
 
 async def count_active_queue_orders(guild_id: int) -> int:
@@ -1060,6 +1118,7 @@ async def get_open_warn_appeal_ticket(
 
 
 async def get_ticket_by_channel(channel_id: int) -> dict[str, Any] | None:
+    t0 = time.perf_counter()
     async with aiosqlite.connect(DATABASE_PATH) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
@@ -1067,7 +1126,9 @@ async def get_ticket_by_channel(channel_id: int) -> dict[str, Any] | None:
             (channel_id,),
         )
         row = await cur.fetchone()
-        return dict(row) if row else None
+        out = dict(row) if row else None
+    await _record_slow_query("get_ticket_by_channel", (time.perf_counter() - t0) * 1000.0)
+    return out
 
 
 async def add_ticket_note(
@@ -1581,6 +1642,43 @@ async def log_tos_agreement(user_id: int, tos_version: int | None = None) -> Non
         await db.commit()
 
 
+async def tos_stats() -> dict[str, Any]:
+    cur_ver = await get_current_tos_version()
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cur = await db.execute("SELECT COUNT(*) FROM tos_agreements")
+        total = int((await cur.fetchone() or [0])[0])
+        cur = await db.execute(
+            "SELECT COUNT(*) FROM tos_agreements WHERE tos_version = ?",
+            (cur_ver,),
+        )
+        current = int((await cur.fetchone() or [0])[0])
+        cur = await db.execute(
+            "SELECT COUNT(*) FROM tos_agreements WHERE tos_version != ?",
+            (cur_ver,),
+        )
+        outdated = int((await cur.fetchone() or [0])[0])
+        cur = await db.execute(
+            "SELECT user_id, agreed_at FROM tos_agreements ORDER BY agreed_at DESC LIMIT 1"
+        )
+        row = await cur.fetchone()
+        last_user = int(row[0]) if row else None
+        last_at = str(row[1]) if row else None
+        cur = await db.execute(
+            "SELECT COUNT(*) FROM tos_agreements WHERE agreed_at >= ?",
+            ((datetime.now(timezone.utc) - timedelta(days=7)).isoformat(),),
+        )
+        week = int((await cur.fetchone() or [0])[0])
+    return {
+        "version": cur_ver,
+        "total": total,
+        "current": current,
+        "outdated": outdated,
+        "last_user": last_user,
+        "last_at": last_at,
+        "week": week,
+    }
+
+
 # --- Shop ---
 
 
@@ -1600,7 +1698,7 @@ async def get_shop_state() -> dict[str, Any]:
         return dict(row) if row else {"is_open": 0}
 
 
-async def set_shop_state(is_open: bool, toggled_by: int | None) -> None:
+async def set_shop_state(is_open: bool, toggled_by: int | None, close_reason: str | None = None) -> None:
     now = _utc_now()
     flag = 1 if is_open else 0
     async with aiosqlite.connect(DATABASE_PATH) as db:
@@ -1609,18 +1707,18 @@ async def set_shop_state(is_open: bool, toggled_by: int | None) -> None:
         if exists:
             await db.execute(
                 """
-                UPDATE shop_state SET is_open = ?, last_toggled = ?, toggled_by = ?
+                UPDATE shop_state SET is_open = ?, last_toggled = ?, toggled_by = ?, close_reason = ?
                 WHERE id = 1
                 """,
-                (flag, now, toggled_by),
+                (flag, now, toggled_by, close_reason if not is_open else None),
             )
         else:
             await db.execute(
                 """
-                INSERT INTO shop_state (id, is_open, last_toggled, toggled_by)
-                VALUES (1, ?, ?, ?)
+                INSERT INTO shop_state (id, is_open, last_toggled, toggled_by, close_reason)
+                VALUES (1, ?, ?, ?, ?)
                 """,
-                (flag, now, toggled_by),
+                (flag, now, toggled_by, close_reason if not is_open else None),
             )
         await db.commit()
 
@@ -1745,7 +1843,7 @@ async def patch_sticky(channel_id: int, updates: dict[str, Any]) -> bool:
             """
             UPDATE sticky_messages SET
                 title = ?, description = ?, color = ?, image_url = ?,
-                footer = ?, thumbnail_url = ?, updated_at = ?
+                footer = ?, thumbnail_url = ?, paused = ?, cooldown_seconds = ?, last_repost_at = ?, updated_at = ?
             WHERE channel_id = ?
             """,
             (
@@ -1755,6 +1853,9 @@ async def patch_sticky(channel_id: int, updates: dict[str, Any]) -> bool:
                 fields.get("image_url"),
                 fields.get("footer"),
                 fields.get("thumbnail_url"),
+                int(fields.get("paused") or 0),
+                int(fields.get("cooldown_seconds") or 2),
+                fields.get("last_repost_at"),
                 now,
                 channel_id,
             ),
@@ -1803,9 +1904,23 @@ async def list_all_stickies() -> list[dict[str, Any]]:
 
 async def all_sticky_channel_ids() -> list[int]:
     async with aiosqlite.connect(DATABASE_PATH) as db:
-        cur = await db.execute("SELECT channel_id FROM sticky_messages")
+        cur = await db.execute("SELECT channel_id FROM sticky_messages WHERE IFNULL(paused,0)=0")
         rows = await cur.fetchall()
         return [int(r[0]) for r in rows]
+
+
+async def set_sticky_pause(channel_id: int, paused: bool) -> bool:
+    row = await get_sticky(channel_id)
+    if not row:
+        return False
+    return await patch_sticky(channel_id, {"paused": 1 if paused else 0})
+
+
+async def set_sticky_cooldown(channel_id: int, seconds: int) -> bool:
+    row = await get_sticky(channel_id)
+    if not row:
+        return False
+    return await patch_sticky(channel_id, {"cooldown_seconds": max(1, int(seconds))})
 
 
 # --- Quote calculator ---
@@ -2102,3 +2217,19 @@ async def mark_db_backup_schedule_sent(owner_user_id: int) -> None:
             (today, owner_user_id),
         )
         await db.commit()
+
+
+async def list_recent_slow_queries(limit: int = 10) -> list[dict[str, Any]]:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            """
+            SELECT query_name, elapsed_ms, created_at
+            FROM slow_query_events
+            ORDER BY elapsed_ms DESC, id DESC
+            LIMIT ?
+            """,
+            (int(limit),),
+        )
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
