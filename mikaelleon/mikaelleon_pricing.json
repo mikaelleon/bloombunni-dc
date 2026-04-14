@@ -1,0 +1,298 @@
+{
+  "artist": "Mikaelleon / Yerusoledo",
+  "currency_note": "USD via PayPal or Ko-fi (international clients) | PHP via GCash, Maya, or Bank Transfer QR PH (Philippine clients)",
+  "exchange_rate": "1 USD = ~₱58.50 PHP (subject to change)",
+  "gcash_disclaimer": "GCash and local PHP prices are set lower to reflect the actual amount received after PayPal transaction fees and withdrawal deductions.",
+
+  "illustration_sizes": {
+    "Icon": "1500x1500px",
+    "Bust Up": "1500x1500px",
+    "Half Body": "1080x1920px",
+    "Full Body": "2480x3508px",
+    "Doodle Small (2-3 poses)": "1500x800px",
+    "Doodle Large (4-5 poses)": "3508x2480px"
+  },
+
+  "rendering_styles": ["Sketch", "Colored Sketch", "Semi-Rendered", "Fully Rendered"],
+
+  "price_matrix": {
+    "Sketch": {
+      "Icon":      { "USD": 12, "PHP": 200 },
+      "Bust Up":   { "USD": 15, "PHP": 315 },
+      "Half Body": { "USD": 20, "PHP": 400 },
+      "Full Body": { "USD": 22, "PHP": 500 }
+    },
+    "Colored Sketch": {
+      "Icon":      { "USD": 15, "PHP": 250 },
+      "Bust Up":   { "USD": 18, "PHP": 350 },
+      "Half Body": { "USD": 20, "PHP": 450 },
+      "Full Body": { "USD": 25, "PHP": 600 }
+    },
+    "Semi-Rendered": {
+      "Icon":      { "USD": 18, "PHP": 300 },
+      "Bust Up":   { "USD": 27, "PHP": 470 },
+      "Half Body": { "USD": 42, "PHP": 730 },
+      "Full Body": { "USD": 52, "PHP": 920 }
+    },
+    "Fully Rendered": {
+      "Icon":      { "USD": 25, "PHP": 350 },
+      "Bust Up":   { "USD": 35, "PHP": 550 },
+      "Half Body": { "USD": 45, "PHP": 850 },
+      "Full Body": { "USD": 60, "PHP": 1050 }
+    }
+  },
+
+  "doodle_pages": {
+    "note": "Doodle pages are multi-pose illustrations on a single canvas.",
+    "sizes": {
+      "Small (2-3 poses)": {
+        "canvas": "1500x800px",
+        "Sketch":          { "USD": 14, "PHP": 200 },
+        "Colored Sketch":  { "USD": 18, "PHP": 300 },
+        "Semi-Rendered":   { "USD": 28, "PHP": 490 },
+        "Fully Rendered":  { "USD": 35, "PHP": 612 }
+      },
+      "Large (4-5 poses)": {
+        "canvas": "3508x2480px",
+        "Sketch":          { "USD": 24, "PHP": 350 },
+        "Colored Sketch":  { "USD": 31, "PHP": 500 },
+        "Semi-Rendered":   { "USD": 48, "PHP": 840 },
+        "Fully Rendered":  { "USD": 60, "PHP": 1050 }
+      }
+    }
+  },
+
+  "illustration_types": {
+    "Normal": { "multiplier": 1.0 },
+    "Chibi":  { "multiplier": 0.8 }
+  },
+
+  "addons": {
+    "note": "All add-ons apply per character unless otherwise stated.",
+    "Rush Delivery (3 business days)": {
+      "USD": 30, "PHP": 520,
+      "applies": "Flat fee per order"
+    },
+    "Solid / Simple Background": {
+      "USD": 0, "PHP": 0,
+      "applies": "Free"
+    },
+    "Complex Background": {
+      "USD": 25, "PHP": 430,
+      "applies": "Flat fee per order"
+    },
+    "Complex Character": {
+      "USD": 30, "PHP": 520,
+      "applies": "Per character",
+      "qualifies": [
+        "Intricate or heavily layered outfits (armor, lots of accessories, straps, buckles, chains)",
+        "Multiple patterns or textures (plaid, scales, lace, embroidery)",
+        "Non-human or hybrid features (wings, multiple limbs, unusual anatomy)",
+        "Highly detailed or elaborate hairstyles (complex braids, voluminous curls, decorative hairpieces)",
+        "Large-area markings, tattoos, or body paint",
+        "Multiple props or held items as part of the default design",
+        "Lots of small design elements (buckles, straps, chains, badges, patches)"
+      ]
+    },
+    "Additional Character": {
+      "USD": "+50% of base price",
+      "PHP": "+50% of base price",
+      "applies": "Per additional character beyond the first"
+    },
+    "Custom Size / Resolution": {
+      "USD": 10, "PHP": 200,
+      "applies": "Flat fee per order"
+    },
+    "Additional Revision (beyond 2 free)": {
+      "USD": 10, "PHP": 200,
+      "applies": "Per revision round, not per character"
+    },
+    "Commercial Use License": {
+      "USD": "+100% of base price",
+      "PHP": "+100% of base price",
+      "applies": "Flat fee per order",
+      "commercial_use_includes": [
+        "Selling physical or digital merchandise (prints, stickers, clothing, etc.)",
+        "Business branding, logos, or promotional materials",
+        "Paid publications (books, magazines, games)",
+        "Monetized content (YouTube, Twitch, paid social media posts)",
+        "Licensing or sublicensing the artwork to a third party"
+      ],
+      "commercial_use_excludes": [
+        "Personal use as profile picture or wallpaper",
+        "Sharing on personal social media with proper credit"
+      ]
+    },
+    "NSFW Fee": {
+      "USD": "+10% of base price",
+      "PHP": "+10% of base price",
+      "applies": "Per character",
+      "note": "Applied on top of all other fees. Non-negotiable."
+    }
+  },
+
+  "ko_fi_listing_addons": {
+    "listing_name": "April 2026 Supporter Special — Colored Sketch Doodle Page",
+    "base_price_USD": 5,
+    "base_includes": "1 Full Body, 2 Half Bodies, 1 Chibi Full Body (Colored Sketch)",
+    "addon_note": "Add-ons apply per character. If multiple characters are included, each is assessed individually.",
+    "addons": {
+      "Extra Character (added to page)": { "USD": 7.50 },
+      "Complex Character (per character)": { "USD": 8.00 },
+      "Chibi Headshot Pack (3 expressions)": { "USD": 3.00 },
+      "Additional Half Body": { "USD": 3.50 },
+      "Additional Full Body": { "USD": 5.00 },
+      "Outfit Variation (same character, different outfit)": {
+        "USD": 10.00,
+        "note": "Adds an extra full body to the doodle page in the alternative outfit. Page becomes: 2 Full Bodies, 2 Half Bodies, 1 Chibi Full Body."
+      },
+      "Rendered Lineart (cleaner, no sketch texture)": { "USD": 15.00 },
+      "Rush Delivery (24 hours)": { "USD": 20.00 }
+    }
+  },
+
+  "custom_commission_pricing": {
+    "note": "Custom commissions involve designing a character's appearance from scratch or adapting a client's real-life likeness. Accepted case-by-case.",
+    "base_prices": {
+      "1 Full Body - Front View Only": {
+        "Colored Sketch": { "USD": 25, "PHP": 600 },
+        "Semi-Rendered":  { "USD": 35, "PHP": 900 },
+        "Fully Rendered": { "USD": 45, "PHP": 1200 }
+      },
+      "2 Full Body - Front and Back View": {
+        "Colored Sketch": { "USD": 38, "PHP": 950 },
+        "Semi-Rendered":  { "USD": 53, "PHP": 1350 },
+        "Fully Rendered": { "USD": 68, "PHP": 1750 }
+      },
+      "2 Full Body - Front View and Alternative Outfit": {
+        "Colored Sketch": { "USD": 42, "PHP": 1050 },
+        "Semi-Rendered":  { "USD": 58, "PHP": 1500 },
+        "Fully Rendered": { "USD": 75, "PHP": 1950 }
+      },
+      "4 Full Body - Front Back Original and Alt Outfit": {
+        "Colored Sketch": { "USD": 72,  "PHP": 1850 },
+        "Semi-Rendered":  { "USD": 100, "PHP": 2600 },
+        "Fully Rendered": { "USD": 128, "PHP": 3300 }
+      },
+      "2 Full Body - Front View and Alternative Form (Non-Human)": {
+        "Colored Sketch": { "USD": 48, "PHP": 1200 },
+        "Semi-Rendered":  { "USD": 65, "PHP": 1650 },
+        "Fully Rendered": { "USD": 85, "PHP": 2150 }
+      }
+    },
+    "bundle_pricing_logic": {
+      "Front + Back view": "+50% of base (same pose mirrored, less design work)",
+      "Alternative Outfit": "+65% of base (new outfit must be designed and rendered)",
+      "4 Full Body bundle": "~2.85x base (bulk discount factored in)",
+      "Alternative Form Non-Human": "+90% of base (non-human anatomy requires significantly more creative work)"
+    },
+    "custom_addons": {
+      "Additional Character": "+50% of base per character",
+      "Complex Character": "+$30 / ₱520 per character",
+      "Extra Full Body View": "+$15 / ₱380",
+      "Extra Half Body": "+$10 / ₱260",
+      "Chibi Full Body": "+$10 / ₱260",
+      "Chibi Half Body": "+$7 / ₱180",
+      "Headshot Expression Set (3)": "+$8 / ₱200",
+      "Headshot Expression Set (5)": "+$12 / ₱300",
+      "Alternative Outfit (additional)": "+$15 / ₱380 (must provide outfit reference)",
+      "Accessory / Prop Sheet": "+$8 / ₱200",
+      "Color / Palette Reference": "+$5 / ₱130",
+      "Simple Background": "Free",
+      "Detailed / Lore Background": "+$25 / ₱650",
+      "Commercial Use License": "+100% of base",
+      "Rush Delivery (3 business days)": "+$30 / ₱520 (paid upfront, subject to availability)"
+    },
+    "custom_fees": {
+      "Original Character / Persona Design": "Varies — discussed before work begins (approx. ₱500 to ₱800 based on complexity)",
+      "Outfit / Persona Adaptation": "Reduced fee when IRL photo or partial reference is provided (approx. ₱400)",
+      "Additional Props": "Assessed per order — only charged if props significantly increase workload"
+    }
+  },
+
+  "payment_terms": {
+    "threshold": "$25 USD / ₱500 PHP",
+    "above_threshold": "50% downpayment before work begins, remaining 50% due upon completion before final file delivery",
+    "at_or_below_threshold": "Full payment required upfront",
+    "installment_plans": "Available for fully-rendered illustrations, character reference sheets, profile banners, and large-scale projects only. Terms discussed prior to payment.",
+    "methods": {
+      "international": ["PayPal (Goods & Services)", "Ko-fi"],
+      "philippine": ["GCash", "Maya", "Bank Transfer via QR PH"]
+    }
+  },
+
+  "turnaround_time": {
+    "Sketch / Colored Sketch": "1 to 5 days",
+    "Semi-Rendered": "1 to 2 weeks",
+    "Fully Rendered": "2 to 3 weeks",
+    "Rush Delivery": "3 business days (+$30 / ₱520, paid upfront, subject to availability)",
+    "note": "TAT may vary depending on character complexity, number of characters, and current queue position."
+  },
+
+  "revisions": {
+    "free_revisions_included": 2,
+    "revision_phase": "Sketch phase only",
+    "additional_revision_fee": "$10 / ₱200 per revision round",
+    "note": "Minor color tweaks and small fixes are free at appropriate workflow stages. Major changes after the coloring phase may incur additional fees."
+  },
+
+  "example_quotes": {
+    "Mizuki Noir (SR BU, 2 characters, ship art)": {
+      "SR BU base": "₱470",
+      "Additional Character (+50%)": "₱235",
+      "Complex Character x2": "₱1,040",
+      "Solid Background": "Free",
+      "Total": "₱1,745",
+      "Downpayment (50%)": "₱872.50",
+      "Remaining": "₱872.50"
+    },
+    "taikko (SR FB, 2 characters, masked/maskless variants)": {
+      "SR FB base": "₱920",
+      "Additional Character (+50%)": "₱460",
+      "Masked/Maskless Layer Variant": "₱200",
+      "Transparent PNG versions": "Free",
+      "Total": "₱1,580",
+      "Downpayment (50%)": "₱790",
+      "Remaining": "₱790"
+    },
+    "tqkenclub (FR FB, custom persona, complex BG)": {
+      "FR FB base": "₱1,050",
+      "Outfit/Persona Adaptation": "₱400",
+      "Complex Character": "₱520",
+      "Complex Background": "₱430",
+      "Discount Code": "-₱200",
+      "Total": "₱2,200",
+      "Downpayment (50%)": "₱1,100",
+      "Remaining": "₱1,100"
+    },
+    "NSFW example (SR HB, 2 characters)": {
+      "SR HB base USD": "$42.00",
+      "Additional Character (+50%)": "+$21.00",
+      "Subtotal": "$63.00",
+      "NSFW fee (10% x 2 characters)": "+$8.40",
+      "Total USD": "$71.40",
+      "SR HB base PHP": "₱730.00",
+      "Additional Character PHP": "+₱365.00",
+      "Subtotal PHP": "₱1,095.00",
+      "NSFW fee PHP": "+₱146.00",
+      "Total PHP": "₱1,241.00"
+    }
+  },
+
+  "active_promotions": {
+    "1KSPECIAL April 2026": {
+      "description": "Discounted base prices for the April 2026 milestone promo",
+      "example": "Full Body Colored Sketch discounted to ₱450 (from ₱600)"
+    }
+  },
+
+  "loyalty_card_milestones": {
+    "1":  "Welcome: 15% off next order (code issued on first completed commission)",
+    "2":  "Free rendering upgrade (1 tier up, e.g. Sketch to Colored Sketch)",
+    "3":  "Free Sketch Icon (500x500px) added to next order",
+    "5":  "20% off next commission (any size or style)",
+    "7":  "Free Colored Sketch Bust Up added to next order",
+    "8":  "Priority queue access on next order",
+    "10": "Free SR Half Body + permanent 10% loyal client rate on all future orders"
+  }
+}

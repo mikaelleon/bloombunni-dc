@@ -1,0 +1,407 @@
+{
+  "artist": {
+    "name": "Mikaelleon",
+    "also_known_as": ["Yerusoledo", "Mika", "Mikmik"],
+    "real_name": "Mikaelle Leon Herzschmidt",
+    "age": 22,
+    "status": "3rd year college student (BSIT, University of Batangas, Lipa Campus)",
+    "email": "mikaelleon.csp@gmail.com",
+    "phone": "09496593028",
+    "social_media": {
+      "tiktok": "@mikaelleon.csp",
+      "instagram": "@mikaelleon.csp",
+      "facebook": "mikaelleon.csp (Mikaelleon Commissions)",
+      "discord": "mikaelleon",
+      "kofi": "@mikaelleon",
+      "twitch": "@mikmikaelleon"
+    },
+    "active_hours_PST": {
+      "monday": "11:30 AM - 2:00 PM & 6:00 PM - 8:00 PM",
+      "tuesday": "12:30 PM - 2:00 PM & 6:00 PM - 8:00 PM",
+      "wednesday": "11:30 AM - 2:00 PM & 6:00 PM - 8:00 PM",
+      "thursday": "CLOSED",
+      "friday": "7:00 AM - 8:00 PM",
+      "saturday": "7:00 AM - 11:30 AM",
+      "sunday": "7:00 AM - 7:00 PM"
+    }
+  },
+
+  "commission_pricing": {
+    "currency_note": "USD via PayPal/Ko-fi (international), PHP via GCash/Maya/Bank Transfer QR PH (local PH)",
+    "exchange_rate": "1 USD = ~₱58.50 PHP (check Config sheet for current rate)",
+    "rendering_styles": ["Sketch", "Colored Sketch", "Semi-Rendered", "Fully Rendered"],
+    "illustration_sizes": {
+      "Icon": "1500x1500px",
+      "Bust Up": "1500x1500px",
+      "Half Body": "1080x1920px",
+      "Full Body": "2480x3508px",
+      "Doodle Small (2-3 poses)": "1500x800px",
+      "Doodle Large (4-5 poses)": "3508x2480px"
+    },
+    "price_matrix_USD_PHP": {
+      "Sketch": {
+        "Icon": "$12 / ₱200",
+        "Bust Up": "$15 / ₱315",
+        "Half Body": "$20 / ₱400",
+        "Full Body": "$22 / ₱500"
+      },
+      "Colored Sketch": {
+        "Icon": "$15 / ₱250",
+        "Bust Up": "$18 / ₱350",
+        "Half Body": "$20 / ₱450",
+        "Full Body": "$25 / ₱600"
+      },
+      "Semi-Rendered": {
+        "Icon": "$18 / ₱300",
+        "Bust Up": "$27 / ₱470",
+        "Half Body": "$42 / ₱730",
+        "Full Body": "$52 / ₱920"
+      },
+      "Fully Rendered": {
+        "Icon": "$25 / ₱350",
+        "Bust Up": "$35 / ₱550",
+        "Half Body": "$45 / ₱850",
+        "Full Body": "$60 / ₱1,050"
+      }
+    },
+    "addons": {
+      "Rush Delivery (3 business days)": "$30 / ₱520 (flat, per order)",
+      "Solid / Simple Background": "Free",
+      "Complex Background": "$25 / ₱430 (flat, per order)",
+      "Complex Character": "$30 / ₱520 per character",
+      "Additional Character": "+50% of base price per character",
+      "Custom Size / Resolution": "$10 / ₱200 (flat, per order)",
+      "Additional Revision (beyond 2 free)": "$10 / ₱200 per revision round",
+      "Commercial Use License": "+100% of base price",
+      "NSFW Fee": "+10% of base price per character"
+    },
+    "payment_terms": {
+      "above_threshold": "Orders above $25 USD / ₱500: 50% downpayment before work begins, 50% upon completion",
+      "at_or_below_threshold": "Orders at $25 USD / ₱500 and below: full payment upfront",
+      "installment_plans": "Available for fully-rendered illustrations, character reference sheets, profile banners, and large-scale projects only"
+    },
+    "turnaround_time": {
+      "Sketch / Colored Sketch": "1 to 5 days",
+      "Semi-Rendered": "1 to 2 weeks",
+      "Fully Rendered": "2 to 3 weeks",
+      "note": "TAT may vary depending on character complexity and queue position"
+    }
+  },
+
+  "custom_commission_pricing": {
+    "note": "Custom commissions = designing character from scratch or outfit adaptation",
+    "base_prices": {
+      "1 Full Body Front View": {
+        "Colored Sketch": "$25 / ₱600",
+        "Semi-Rendered": "$35 / ₱900",
+        "Fully Rendered": "$45 / ₱1,200"
+      },
+      "2 Full Body Front and Back": {
+        "Colored Sketch": "$38 / ₱950",
+        "Semi-Rendered": "$53 / ₱1,350",
+        "Fully Rendered": "$68 / ₱1,750"
+      },
+      "2 Full Body Front and Alternative Outfit": {
+        "Colored Sketch": "$42 / ₱1,050",
+        "Semi-Rendered": "$58 / ₱1,500",
+        "Fully Rendered": "$75 / ₱1,950"
+      },
+      "4 Full Body Front Back Original and Alt Outfit": {
+        "Colored Sketch": "$72 / ₱1,850",
+        "Semi-Rendered": "$100 / ₱2,600",
+        "Fully Rendered": "$128 / ₱3,300"
+      },
+      "2 Full Body Front and Alternative Form Non-Human": {
+        "Colored Sketch": "$48 / ₱1,200",
+        "Semi-Rendered": "$65 / ₱1,650",
+        "Fully Rendered": "$85 / ₱2,150"
+      }
+    },
+    "custom_addons": {
+      "Additional Character": "+50% of base per character",
+      "Complex Character": "+$30 / ₱520 per character",
+      "Extra Full Body View": "+$15 / ₱380",
+      "Extra Half Body": "+$10 / ₱260",
+      "Chibi Full Body": "+$10 / ₱260",
+      "Chibi Half Body": "+$7 / ₱180",
+      "Headshot Expression Set (3)": "+$8 / ₱200",
+      "Headshot Expression Set (5)": "+$12 / ₱300",
+      "Alternative Outfit (additional)": "+$15 / ₱380",
+      "Accessory / Prop Sheet": "+$8 / ₱200",
+      "Color / Palette Reference": "+$5 / ₱130",
+      "Simple Background": "Free",
+      "Detailed / Lore Background": "+$25 / ₱650",
+      "Commercial Use License": "+100% of base",
+      "Rush Delivery": "+$30 / ₱520"
+    }
+  },
+
+  "ko_fi_listing": {
+    "name": "April 2026 Supporter Special — Colored Sketch Doodle Page",
+    "price": "$5 USD (Pay What You Want enabled)",
+    "includes": "1 Full Body, 2 Half Bodies, 1 Chibi Full Body",
+    "rendering_style": "Colored Sketch",
+    "tat": "2 to 5 days",
+    "type": "Surprise Me commission (no WIP previews, artist messages only when complete)",
+    "quantity_limit": 20,
+    "addons": {
+      "Extra Character": "+$7.50",
+      "Complex Character (per character)": "+$8",
+      "Chibi Headshot Pack (3 expressions)": "+$3",
+      "Additional Half Body": "+$3.50",
+      "Additional Full Body": "+$5",
+      "Outfit Variation (same character, different outfit)": "+$10 (adds an extra full body to the page)",
+      "Rendered Lineart": "+$15",
+      "Rush Delivery 24 hours": "+$20"
+    },
+    "addon_note": "Add-ons apply per character. If multiple characters, each is assessed individually."
+  },
+
+  "what_i_draw": [
+    "Human-faced characters (feminine, masculine, androgynous)",
+    "Kemonomimi",
+    "Fan art and ship art",
+    "Yumeships (self-insert ships)",
+    "Simple backgrounds",
+    "Mild gore and body horror",
+    "NSFW / R-18 (adult characters only, eligible clients only)"
+  ],
+  "what_i_do_not_draw": [
+    "NSFW involving underage characters or real-life people",
+    "Extreme gore or graphic violence",
+    "Overly detailed or complex backgrounds",
+    "Mecha, animal-faced humanoids, or furries",
+    "Mimicry of another artist's style",
+    "Hateful, offensive, or discriminatory themes",
+    "Elderly subjects"
+  ],
+
+  "nsfw_policy": {
+    "eligibility": [
+      "Not commissioning from a Discord server rated 16+ or below",
+      "Explicitly stated age (18+) in social media biography",
+      "Willing to provide proof of age upon request"
+    ],
+    "fee": "+10% of base price per character",
+    "privacy": "NSFW work not posted publicly without explicit written permission from client",
+    "hard_limits": [
+      "No NSFW of characters who are or appear underage",
+      "No NSFW of real people",
+      "No non-consensual or coercive scenarios presented approvingly",
+      "No minors in any romantic or sexual context even if aged up"
+    ]
+  },
+
+  "refund_policy": {
+    "before_work_begins": "Full refund",
+    "during_sketch_phase": "25% partial refund of amount paid",
+    "after_coloring_phase": "No refund",
+    "artist_cancellation": "Full refund regardless of stage; client may receive partial files upon mutual agreement"
+  },
+
+  "revisions_policy": {
+    "free_revisions": 2,
+    "revision_phase": "Sketch phase only",
+    "additional_revision_fee": "$10 / ₱200 per revision round"
+  },
+
+  "loyalty_card_program": {
+    "stamps_per_card": 10,
+    "milestones": {
+      "1": "Welcome: 15% off next order",
+      "2": "Free rendering upgrade (1 tier up)",
+      "3": "Free Sketch Icon (500x500px) on next order",
+      "5": "20% off next commission",
+      "7": "Free Colored Sketch Bust Up on next order",
+      "8": "Priority queue access on next order",
+      "10": "Free SR Half Body + permanent 10% loyal client rate"
+    },
+    "id_format": "MIKA-MMYY-XXXX (based on issue date and sequential number)",
+    "expiry": "Cards do not expire. Stamps may be forfeited on cancellation, refund, or blacklisting.",
+    "reward_claim_window": "6 months after milestone is unlocked",
+    "terms": "One stamp per completed and fully paid commission. Non-transferable. Discount codes are single-use."
+  },
+
+  "discount_codes": {
+    "MIKA1ST@MN": {
+      "client": "Mizuki Noir",
+      "type": "Percentage",
+      "value": "15% off",
+      "applies_to": "All commissions",
+      "expiry": "No expiry",
+      "uses": "1 use",
+      "notes": "Issued with Stamp 1 of Loyalty Card"
+    }
+  },
+
+  "active_clients": {
+    "Mizuki Noir": {
+      "email": "mizukiinoir@gmail.com",
+      "platform": "X - @MizukiiNoir",
+      "commission": "SR BU - Semi-Rendered Bust Up (Wolf Knight x Vampire Princess / Ship Art)",
+      "characters": ["Mizuki Noir (Wolf Knight, Ouji aesthetic)", "Kurose Kiryu (Vampire Princess, Goth Lolita & Vampire aesthetic)"],
+      "quote_PHP": 1745,
+      "breakdown": {
+        "SR BU base": 470,
+        "Additional Character (+50%)": 235,
+        "Complex Character x2": 1040,
+        "Solid Background": 0
+      },
+      "downpayment": 872.50,
+      "remaining_balance": 872.50,
+      "status": "Completed and delivered (improved finals sent with blending and lighting improvements)",
+      "loyalty_card_id": "MIKA-0326-0001",
+      "loyalty_card_stamp": 1,
+      "discount_code_issued": "MIKA1ST@MN (15% off next order)",
+      "feedback_form_sent": true,
+      "payment_method": "GCash"
+    },
+    "taikko": {
+      "email": "taikko.business@gmail.com",
+      "commission": "SR FB - Semi-Rendered Full Body (Low x Alone, Little Nightmares AU / Ship Art)",
+      "characters": ["Low (Wolf Knight aesthetic, lean build, twists hair with beads, red band on bow)", "Alone (Goth Lolita, wrench weapon, pigtails, snaggle tooth)"],
+      "special_notes": "Double-sided keychain format. Masked and maskless variants. Transparent PNG delivery. Pigtails must be covered by wrench from back side.",
+      "quote_PHP": 1580,
+      "breakdown": {
+        "SR FB base": 920,
+        "Additional Character (+50%)": 460,
+        "Masked/Maskless Layer Variant": 200,
+        "Transparent PNG": 0
+      },
+      "downpayment": 790,
+      "remaining_balance": 790,
+      "status": "In progress - revised sketch stage (adjustments: Alone pigtails poofier, snaggle tooth more visible, cloak included in Low's flipped maskless version)",
+      "payment_method": "GCash",
+      "downpayment_received": "Mar 20, 2026 - ₱790.00 confirmed",
+      "queue_position": 2,
+      "references_updated": true,
+      "reference_note": "Updated references sent Apr 4, 2026 - new designs used"
+    },
+    "tqkenclub": {
+      "email": "tqkenclub@gmail.com",
+      "commission": "FR FB - Fully Rendered Full Body (Cyrus Ross / Online Persona Design)",
+      "character": "Cyrus Ross, The Primordial Archivist - Victorian era aesthetic, IRL photo as face reference",
+      "props": ["Reverie Archives book", "Camera", "Skeleton flower"],
+      "quote_PHP": 2200,
+      "breakdown": {
+        "FR FB base": 1050,
+        "Outfit/Persona Adaptation": 400,
+        "Complex Character": 520,
+        "Complex Background": 430,
+        "Discount Code": -200
+      },
+      "downpayment": 1100,
+      "remaining_balance": 1100,
+      "payment_method": "GCash",
+      "friend": true
+    },
+    "Nemui": {
+      "email": "residentsleepyboi3@gmail.com",
+      "platform": "Ko-fi",
+      "commission": "April 2026 Colored Sketch Doodle Page (Kaito OC)",
+      "character": "Kaito - bubbly, flirty, teasing, naive, eye bags, messy hair",
+      "original_price": 16,
+      "complex_character_added": true,
+      "outfit_variation_added": true,
+      "updated_quote_USD": 33,
+      "breakdown": {
+        "April 2026 Colored Sketch Doodle Page": 15,
+        "Complex Character": 8,
+        "Outfit Variation": 10
+      },
+      "already_paid": 16,
+      "remaining_balance": 17,
+      "page_contents": "2 Full Bodies (original + alt outfit), 2 Half Bodies, 1 Chibi Full Body",
+      "payment_method": "Ko-fi tip for balance",
+      "status": "In progress - awaiting outfit reference or artist choice approval"
+    },
+    "Malphordion": {
+      "status": "Commission finished, delivery pending",
+      "details_needed": "Commission type, stamp number, loyalty card ID"
+    }
+  },
+
+  "weekly_free_art_event": {
+    "title": "Weekly Free Art Requests & Giveaways",
+    "dates": "March 15 to April 11, 2026",
+    "slots_per_week": 3,
+    "selection_method": "Spinning wheel",
+    "announcement_day": "Every Monday",
+    "rendering_range": "Colored Sketch to Semi-Rendered",
+    "entry_mechanics": {
+      "step_1": "Follow, like, and repost TikTok video (+1 entry, required)",
+      "step_2": "Follow Facebook page (+1 entry, required)",
+      "step_3": "Mention a friend in comments (+1 entry each mention, optional)",
+      "step_4": "Submit character reference via Google Form or Facebook DMs (required)"
+    },
+    "entries": "Cumulative - entries carry over each week",
+    "one_win_per_month": true,
+    "week_2_note": "Delayed due to technical issue (unable to view reposts). Week 1 participants auto-entered into Week 2 draw. From Week 3: clients must comment confirming all steps completed.",
+    "week_1_winners": ["nanamiminyg", "deceit.011_14523", "merikaren", "slayqueensparklesunicornslime_77", "luvaeikoo", "tsukiokatsumugi"],
+    "consolation": "Non-selected entrants will receive quick sketches as compensation"
+  },
+
+  "forms_and_documents": {
+    "standard_commission_form": "https://forms.gle/an1L1hSxYd1owMTWA",
+    "nsfw_commission_form": "https://forms.gle/NCL9YwwXMusgP5HK6",
+    "tos_document": "https://docs.google.com/document/d/1nzJlRCWBWRBFxVLqLW5S7Fli0Zt9ORLVunDNxzJigQo/edit",
+    "yumeship_raffle_form": "https://forms.gle/28H88W9nSyiyEPQHA"
+  },
+
+  "files_created": {
+    "commission_prices_v2.xlsx": "Formula-driven price matrix with 8 sheets including Price Tables, Bundle Calc, Normal, Chibi, Surprise Me, Doodle Pages, Discount Codes. 783 formulas, 0 errors.",
+    "commission_prices_v2.docx": "Word document with all price tables, GCash promo, disclaimer, payment notes, discount codes. 838 paragraphs, 0 errors.",
+    "price_matrix.xlsx": "Simple price matrix for illustration sizes x rendering styles in USD, PHP, and GCash. Includes Add-ons sheet with Additional Character calculator. 86 formulas, 0 errors.",
+    "loyalty_tracker.xlsx": "4-sheet loyalty program tracker: Loyalty Tracker (main), Milestones reference, Discount Code Log, Summary Dashboard. 137 formulas, 0 errors. ID format: MIKA-MMYY-XXXX."
+  },
+
+  "commission_process_steps": [
+    "1. Initial sketch sent to client for review (up to 2 free revisions at this stage)",
+    "2. Base color checks and design revisions after sketch approval",
+    "3. Final rendering begins after final approval (no significant changes permitted after this point)",
+    "4. Non-background orders include simple shapes/gradients as default background",
+    "5. WIP screenshots available upon request at any time",
+    "6. Watermarked preview sent for final confirmation before delivery",
+    "7. Remaining balance (50%) collected before full file delivery",
+    "8. High-resolution PNG delivered via email or preferred contact method"
+  ],
+
+  "important_notes": {
+    "commercial_use_includes": [
+      "Selling physical/digital merchandise (prints, stickers, clothing)",
+      "Business branding, logos, promotional materials",
+      "Paid publications (books, magazines, games)",
+      "Monetized content (YouTube, Twitch, paid social media)",
+      "Licensing or sublicensing to third parties"
+    ],
+    "commercial_use_excludes": [
+      "Personal use as profile picture or wallpaper",
+      "Sharing on personal social media with proper credit"
+    ],
+    "complex_character_applies_to": [
+      "Intricate or heavily layered outfits",
+      "Multiple patterns or textures (plaid, scales, lace, embroidery)",
+      "Non-human or hybrid features (wings, multiple limbs)",
+      "Highly detailed or elaborate hairstyles",
+      "Large-area markings, tattoos, or body paint",
+      "Multiple props or held items",
+      "Lots of small design elements (buckles, straps, chains)"
+    ],
+    "file_retention": "Artist retains copy for 30 days after delivery. After this, re-delivery not guaranteed.",
+    "exclusivity": "Artist will not resell, reuse, or reproduce the same composition for any other client without written permission."
+  },
+
+  "facebook_automations": {
+    "instant_reply": "Greeting with commission hours and portfolio link",
+    "away_message": "Away notice with commission hours",
+    "faq_triggers": ["how much", "commission", "price", "slot", "open", "gcash", "turnaround", "how long"],
+    "hours_response": "PST active hours listed",
+    "comment_to_message_keywords": ["commission", "commish", "how much", "price", "slot", "open", "request", "hire"]
+  },
+
+  "session_notes": {
+    "conversation_summary": "This session covers the full setup of Mikaelleon's digital art commission business infrastructure including: pricing system, TOS, Google Forms (standard and NSFW), Ko-fi listing, Facebook/Instagram automations, Discord free art event, loyalty card program, client management templates, email drafts for all major scenarios, spreadsheet files, and active client tracking. The artist is a 22-year-old Filipino college student running commissions alongside studies.",
+    "currency_disclaimer": "USD prices are higher than PHP because PayPal deducts fees from transactions and withdrawals. GCash/local PHP prices reflect actual amount received after deductions.",
+    "april_2026_promo": "1KSPECIAL promo - discounted base prices running in April 2026"
+  }
+}

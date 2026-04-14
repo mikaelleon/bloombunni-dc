@@ -63,11 +63,12 @@ DEFAULT_MODAL_FIELDS: list[dict[str, Any]] = [
 ]
 
 DEFAULT_SELECT_OPTIONS: list[str] = [
-    "Chibi",
-    "Chibi Scene",
-    "Normal / Semi-Realistic",
-    "Bust",
-    "Fullbody",
+    "Icon",
+    "Bust Up",
+    "Half Body",
+    "Full Body",
+    "Doodle Small (2-3 poses)",
+    "Doodle Large (4-5 poses)",
     "Other",
 ]
 
@@ -1086,7 +1087,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
     )
     @app_commands.describe(
         button="Button label",
-        options="Comma-separated, e.g. Chibi, Chibi Scene, Fullbody",
+        options="Comma-separated, e.g. Icon, Bust Up, Full Body",
     )
     @is_staff()
     async def ticketform_setoptions(

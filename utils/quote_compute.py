@@ -11,16 +11,16 @@ from utils.forex import fetch_php_rates
 
 # Re-export for single source of truth
 COMMISSION_TYPES: tuple[str, ...] = (
-    "Chibi",
-    "Chibi Fullbody",
-    "Bust",
-    "Fullbody",
+    "Icon",
+    "Bust Up",
+    "Half Body",
+    "Full Body",
     "Other",
 )
 RENDERING_TIERS: tuple[str, ...] = (
     "Sketch",
-    "Flat Color",
-    "Shaded",
+    "Colored Sketch",
+    "Semi-Rendered",
     "Fully Rendered",
 )
 CHAR_OPTIONS: tuple[str, ...] = ("1", "2", "3", "4+")
@@ -28,15 +28,15 @@ BG_OPTIONS: tuple[str, ...] = ("None", "Simple", "Detailed")
 
 TIER_SLUG: dict[str, str] = {
     "Sketch": "sk",
-    "Flat Color": "fc",
-    "Shaded": "sr",
+    "Colored Sketch": "cs",
+    "Semi-Rendered": "sr",
     "Fully Rendered": "fr",
 }
 TYPE_SLUG: dict[str, str] = {
-    "Chibi": "ch",
-    "Chibi Fullbody": "cfb",
-    "Bust": "bu",
-    "Fullbody": "fb",
+    "Icon": "ic",
+    "Bust Up": "bu",
+    "Half Body": "hb",
+    "Full Body": "fb",
     "Other": "ot",
 }
 
@@ -264,9 +264,9 @@ def tat_estimate_text(tier: str, commission_type: str, rush: bool) -> str:
     if rush:
         return "**Turnaround:** **3 business days** (Rush Delivery add-on).\n_TAT may vary depending on queue position and character complexity._"
     tl = tier.lower()
-    if "sketch" in tl or "flat" in tl:
+    if "sketch" in tl:
         return "**Turnaround (estimate):** **1–5 days** for sketch / flat work.\n_TAT may vary depending on queue position and character complexity._"
-    if "shaded" in tl or "semi" in commission_type.lower():
+    if "semi" in tl or "semi" in commission_type.lower():
         return "**Turnaround (estimate):** **1–2 weeks** for semi-rendered work.\n_TAT may vary depending on queue position and character complexity._"
     if "fully" in tl or "rendered" in tl:
         return "**Turnaround (estimate):** **2–3 weeks** for fully rendered work.\n_TAT may vary depending on queue position and character complexity._"
