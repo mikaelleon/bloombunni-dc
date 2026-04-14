@@ -29,6 +29,23 @@ from utils.quote_compute import (
 log = get_logger("quotes")
 
 
+async def _safe_edit_component_message(
+    interaction: discord.Interaction,
+    *,
+    embed: discord.Embed,
+    view: discord.ui.View | None,
+) -> bool:
+    try:
+        await interaction.response.edit_message(embed=embed, view=view)
+        return True
+    except discord.NotFound:
+        log.info("quote component interaction expired before response")
+        return False
+    except discord.HTTPException as e:
+        log.warning("quote component response failed: %s", e)
+        return False
+
+
 @dataclass
 class QuoteSession:
     step: int = 0
@@ -72,7 +89,8 @@ class QuoteFlowView(discord.ui.View):
                     embed=user_hint("Unavailable", "Run this in a server."), ephemeral=True
                 )
                 return
-            await interaction.response.edit_message(
+            await _safe_edit_component_message(
+                interaction,
                 embed=info_embed("Quote — step 2/7", "Pick your **rendering tier**."),
                 view=QuoteTierView(self.cog, subj, str(v)),
             )
@@ -97,7 +115,8 @@ class QuoteTierView(discord.ui.View):
 
         async def cb(interaction: discord.Interaction) -> None:
             v = interaction.data.get("values", [""])[0] if interaction.data else ""
-            await interaction.response.edit_message(
+            await _safe_edit_component_message(
+                interaction,
                 embed=info_embed("Quote — step 3/7", "How many **characters**?"),
                 view=QuoteCharView(self.cog, target, self.commission_type, str(v)),
             )
@@ -129,7 +148,8 @@ class QuoteCharView(discord.ui.View):
 
         async def cb(interaction: discord.Interaction) -> None:
             v = interaction.data.get("values", [""])[0] if interaction.data else ""
-            await interaction.response.edit_message(
+            await _safe_edit_component_message(
+                interaction,
                 embed=info_embed("Quote — step 4/7", "**Background** level?"),
                 view=QuoteBgView(self.cog, target, self.commission_type, self.tier, str(v)),
             )
@@ -202,7 +222,8 @@ class QuoteBgView(discord.ui.View):
 
         async def cb(interaction: discord.Interaction) -> None:
             v = interaction.data.get("values", [""])[0] if interaction.data else ""
-            await interaction.response.edit_message(
+            await _safe_edit_component_message(
+                interaction,
                 embed=info_embed("Quote — step 5/7", "**Rush delivery** add-on?"),
                 view=QuoteRushView(
                     self.cog, target, self.commission_type, self.tier, self.char_key, str(v)
@@ -244,7 +265,8 @@ class QuoteRushView(discord.ui.View):
         async def cb(interaction: discord.Interaction) -> None:
             v = interaction.data.get("values", [""])[0] if interaction.data else "0"
             rush = v == "1"
-            await interaction.response.edit_message(
+            await _safe_edit_component_message(
+                interaction,
                 embed=info_embed(
                     "Quote — step 6/7",
                     "**Which currency will you be paying in?**",
@@ -314,9 +336,10 @@ class QuoteCurrencyView(discord.ui.View):
                     pay_currency="PHP",
                     payment_method="GCash",
                 )
-                await interaction.response.edit_message(embed=emb, view=None)
+                await _safe_edit_component_message(interaction, embed=emb, view=None)
                 return
-            await interaction.response.edit_message(
+            await _safe_edit_component_message(
+                interaction,
                 embed=info_embed(
                     "Quote — step 7/7",
                     "**Which payment method?** (USD)",
@@ -385,7 +408,7 @@ class QuoteUsdMethodView(discord.ui.View):
                 pay_currency="USD",
                 payment_method=str(method),
             )
-            await interaction.response.edit_message(embed=emb, view=None)
+            await _safe_edit_component_message(interaction, embed=emb, view=None)
 
         sel.callback = cb
         self.add_item(sel)
