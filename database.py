@@ -355,6 +355,63 @@ async def _ensure_slow_query_schema(db: aiosqlite.Connection) -> None:
     )
 
 
+async def _ensure_embed_builder_schema(db: aiosqlite.Connection) -> None:
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS embed_builder_meta (
+            guild_id INTEGER PRIMARY KEY,
+            last_assigned_id INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS embed_builder_staff_roles (
+            guild_id INTEGER NOT NULL,
+            role_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (guild_id, role_id)
+        )
+        """
+    )
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS embed_builder_embeds (
+            guild_id INTEGER NOT NULL,
+            embed_id TEXT NOT NULL,
+            created_by INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            last_edited_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'draft',
+            author_text TEXT,
+            author_icon TEXT,
+            title TEXT,
+            description TEXT,
+            footer_text TEXT,
+            footer_icon TEXT,
+            thumbnail_url TEXT,
+            image_url TEXT,
+            color TEXT NOT NULL DEFAULT '#5865F2',
+            ts_enabled INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (guild_id, embed_id)
+        )
+        """
+    )
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS embed_builder_audit (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER NOT NULL,
+            actor_user_id INTEGER NOT NULL,
+            action TEXT NOT NULL,
+            embed_id TEXT NOT NULL,
+            channel_id INTEGER,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+
+
 async def _migration_applied(db: aiosqlite.Connection, version: int) -> bool:
     cur = await db.execute(
         "SELECT 1 FROM schema_migrations WHERE version = ? LIMIT 1",
@@ -583,6 +640,7 @@ async def init_db() -> None:
         await _run_migration(db, 11, "ensure_shop_state_reason", _ensure_shop_state_reason)
         await _run_migration(db, 12, "ensure_sticky_p3_schema", _ensure_sticky_p3_schema)
         await _run_migration(db, 13, "ensure_slow_query_schema", _ensure_slow_query_schema)
+        await _run_migration(db, 14, "ensure_embed_builder_schema", _ensure_embed_builder_schema)
         await db.commit()
 
 
@@ -2233,3 +2291,150 @@ async def list_recent_slow_queries(limit: int = 10) -> list[dict[str, Any]]:
         )
         rows = await cur.fetchall()
         return [dict(r) for r in rows]
+
+
+# --- Embed builder ---
+
+
+async def list_embed_staff_roles(guild_id: int) -> list[int]:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cur = await db.execute(
+            "SELECT role_id FROM embed_builder_staff_roles WHERE guild_id = ? ORDER BY role_id",
+            (guild_id,),
+        )
+        rows = await cur.fetchall()
+        return [int(r[0]) for r in rows]
+
+
+async def add_embed_staff_role(guild_id: int, role_id: int) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """
+            INSERT INTO embed_builder_staff_roles (guild_id, role_id, created_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(guild_id, role_id) DO NOTHING
+            """,
+            (guild_id, role_id, _utc_now()),
+        )
+        await db.commit()
+
+
+async def remove_embed_staff_role(guild_id: int, role_id: int) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            "DELETE FROM embed_builder_staff_roles WHERE guild_id = ? AND role_id = ?",
+            (guild_id, role_id),
+        )
+        await db.commit()
+
+
+async def create_builder_embed(guild_id: int, created_by: int) -> dict[str, Any]:
+    now = _utc_now()
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            "INSERT INTO embed_builder_meta (guild_id, last_assigned_id) VALUES (?, 0) ON CONFLICT(guild_id) DO NOTHING",
+            (guild_id,),
+        )
+        cur = await db.execute(
+            "SELECT last_assigned_id FROM embed_builder_meta WHERE guild_id = ?",
+            (guild_id,),
+        )
+        row = await cur.fetchone()
+        nxt = int(row[0]) + 1 if row else 1
+        embed_id = f"EMB-{nxt:03d}"
+        await db.execute(
+            "UPDATE embed_builder_meta SET last_assigned_id = ? WHERE guild_id = ?",
+            (nxt, guild_id),
+        )
+        await db.execute(
+            """
+            INSERT INTO embed_builder_embeds (
+                guild_id, embed_id, created_by, created_at, last_edited_at, status, color, ts_enabled
+            ) VALUES (?, ?, ?, ?, ?, 'draft', '#5865F2', 0)
+            """,
+            (guild_id, embed_id, created_by, now, now),
+        )
+        await db.commit()
+    return await get_builder_embed(guild_id, embed_id) or {}
+
+
+async def get_builder_embed(guild_id: int, embed_id: str) -> dict[str, Any] | None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM embed_builder_embeds WHERE guild_id = ? AND embed_id = ?",
+            (guild_id, embed_id.upper()),
+        )
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+
+async def list_builder_embeds(guild_id: int) -> list[dict[str, Any]]:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM embed_builder_embeds WHERE guild_id = ? ORDER BY embed_id ASC",
+            (guild_id,),
+        )
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def patch_builder_embed(guild_id: int, embed_id: str, updates: dict[str, Any]) -> bool:
+    row = await get_builder_embed(guild_id, embed_id)
+    if not row:
+        return False
+    allowed = {
+        "author_text",
+        "author_icon",
+        "title",
+        "description",
+        "footer_text",
+        "footer_icon",
+        "thumbnail_url",
+        "image_url",
+        "color",
+        "ts_enabled",
+        "status",
+    }
+    fields = {k: v for k, v in updates.items() if k in allowed}
+    if not fields:
+        return True
+    fields["last_edited_at"] = _utc_now()
+    set_sql = ", ".join(f"{k} = ?" for k in fields.keys())
+    vals = list(fields.values()) + [guild_id, embed_id.upper()]
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            f"UPDATE embed_builder_embeds SET {set_sql} WHERE guild_id = ? AND embed_id = ?",
+            vals,
+        )
+        await db.commit()
+    return True
+
+
+async def delete_builder_embed(guild_id: int, embed_id: str) -> bool:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cur = await db.execute(
+            "DELETE FROM embed_builder_embeds WHERE guild_id = ? AND embed_id = ?",
+            (guild_id, embed_id.upper()),
+        )
+        await db.commit()
+        return int(cur.rowcount or 0) > 0
+
+
+async def log_embed_builder_action(
+    guild_id: int,
+    actor_user_id: int,
+    action: str,
+    embed_id: str,
+    channel_id: int | None = None,
+) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """
+            INSERT INTO embed_builder_audit (guild_id, actor_user_id, action, embed_id, channel_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (guild_id, actor_user_id, action[:32], embed_id.upper(), channel_id, _utc_now()),
+        )
+        await db.commit()
