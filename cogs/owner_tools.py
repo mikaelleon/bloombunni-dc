@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
+import config
 from utils.checks import is_guild_owner
 from utils.embeds import success_embed, user_hint, user_warn
 from utils.logging_setup import get_logger
@@ -19,6 +21,8 @@ _MAX_MESSAGES_SCAN = 15_000
 
 
 class OwnerToolsCog(commands.Cog, name="OwnerToolsCog"):
+    db_group = app_commands.Group(name="db", description="Owner database tools")
+
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
@@ -122,6 +126,49 @@ class OwnerToolsCog(commands.Cog, name="OwnerToolsCog"):
             scanned,
         )
 
+    @db_group.command(name="backup", description="DM yourself a SQLite backup file")
+    @is_guild_owner()
+    async def db_backup(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        db_path = Path(config.DATABASE_PATH)
+        if not db_path.exists():
+            await interaction.followup.send(
+                embed=user_warn("Backup failed", f"Database file not found: `{db_path}`"),
+                ephemeral=True,
+            )
+            return
+        max_bytes = 25 * 1024 * 1024
+        size = db_path.stat().st_size
+        if size > max_bytes:
+            await interaction.followup.send(
+                embed=user_warn(
+                    "Backup too large",
+                    f"Database is {size / (1024 * 1024):.2f}MB (>25MB Discord upload limit). Use host filesystem backup.",
+                ),
+                ephemeral=True,
+            )
+            return
+        try:
+            dm = await interaction.user.create_dm()
+            await dm.send(
+                content="Mika Shop database backup.",
+                file=discord.File(str(db_path), filename=db_path.name),
+            )
+        except discord.HTTPException:
+            await interaction.followup.send(
+                embed=user_warn(
+                    "DM blocked",
+                    "Could not DM backup file. Enable DMs and try again.",
+                ),
+                ephemeral=True,
+            )
+            return
+        await interaction.followup.send(
+            embed=success_embed("Backup sent", "Check your DMs for the database file."),
+            ephemeral=True,
+        )
+
 
 async def setup(bot: commands.Bot) -> None:
-    await bot.add_cog(OwnerToolsCog(bot))
+    cog = OwnerToolsCog(bot)
+    await bot.add_cog(cog)

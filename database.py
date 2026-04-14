@@ -189,6 +189,45 @@ async def _ensure_quote_and_wizard_schema(db: aiosqlite.Connection) -> None:
     )
 
 
+async def _ensure_schema_migrations_table(db: aiosqlite.Connection) -> None:
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            version INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            applied_at TEXT NOT NULL
+        )
+        """
+    )
+
+
+async def _migration_applied(db: aiosqlite.Connection, version: int) -> bool:
+    cur = await db.execute(
+        "SELECT 1 FROM schema_migrations WHERE version = ? LIMIT 1",
+        (version,),
+    )
+    return await cur.fetchone() is not None
+
+
+async def _record_migration(db: aiosqlite.Connection, version: int, name: str) -> None:
+    await db.execute(
+        """
+        INSERT INTO schema_migrations (version, name, applied_at)
+        VALUES (?, ?, ?)
+        """,
+        (version, name, _utc_now()),
+    )
+
+
+async def _run_migration(
+    db: aiosqlite.Connection, version: int, name: str, runner
+) -> None:
+    if await _migration_applied(db, version):
+        return
+    await runner(db)
+    await _record_migration(db, version, name)
+
+
 async def init_db() -> None:
     async with aiosqlite.connect(DATABASE_PATH) as db:
         await db.execute(
@@ -366,11 +405,20 @@ async def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS idx_ticket_buttons_guild ON ticket_buttons (guild_id)"
         )
 
-        await _ensure_tickets_schema(db)
-        await _ensure_ticket_buttons_columns(db)
-        await _ensure_tickets_extended_columns(db)
-        await _ensure_ticket_buttons_age_gate(db)
-        await _ensure_quote_and_wizard_schema(db)
+        await _ensure_schema_migrations_table(db)
+        await _run_migration(db, 1, "ensure_tickets_schema", _ensure_tickets_schema)
+        await _run_migration(
+            db, 2, "ensure_ticket_buttons_columns", _ensure_ticket_buttons_columns
+        )
+        await _run_migration(
+            db, 3, "ensure_tickets_extended_columns", _ensure_tickets_extended_columns
+        )
+        await _run_migration(
+            db, 4, "ensure_ticket_buttons_age_gate", _ensure_ticket_buttons_age_gate
+        )
+        await _run_migration(
+            db, 5, "ensure_quote_and_wizard_schema", _ensure_quote_and_wizard_schema
+        )
         await db.commit()
 
 

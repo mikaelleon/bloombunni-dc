@@ -245,6 +245,106 @@ class ConfigCog(commands.Cog, name="ConfigCog"):
         view = PagedEmbedView(pages, interaction.user.id)
         await interaction.response.send_message(embed=pages[0], view=view, ephemeral=True)
 
+    @config.command(
+        name="error_channel",
+        description="Set where unhandled runtime errors are posted",
+    )
+    @app_commands.describe(
+        channel="Private staff text channel for bot error alerts",
+    )
+    @can_manage_server_config()
+    async def config_error_channel(
+        self, interaction: discord.Interaction, channel: discord.TextChannel
+    ) -> None:
+        if not interaction.guild:
+            return
+        await db.set_guild_setting(interaction.guild.id, gk.ERROR_ALERT_CHANNEL, channel.id)
+        await interaction.response.send_message(
+            embed=success_embed(
+                "Saved",
+                f"Runtime errors will alert in {channel.mention}.",
+            ),
+            ephemeral=True,
+        )
+
+    @config.command(
+        name="check",
+        description="Validate setup health and catch broken config before users hit errors",
+    )
+    @can_manage_server_config()
+    async def config_check(self, interaction: discord.Interaction) -> None:
+        if not interaction.guild:
+            return
+
+        guild = interaction.guild
+        rows = await db.list_guild_settings(guild.id)
+        str_rows = await db.list_guild_string_settings(guild.id)
+        ok: list[str] = []
+        warn: list[str] = []
+        err: list[str] = []
+
+        def _role_exists(key: str) -> bool:
+            rid = rows.get(key)
+            return bool(rid and guild.get_role(int(rid)))
+
+        def _channel_exists(key: str) -> bool:
+            cid = rows.get(key)
+            return bool(cid and guild.get_channel(int(cid)))
+
+        payment_values = [str_rows.get(k, "").strip() for k in gk.PAYMENT_ALL_KEYS]
+        if _channel_exists(gk.PAYMENT_CHANNEL):
+            if any(payment_values):
+                ok.append("Payment channel has at least one payment field configured.")
+            else:
+                err.append("Payment channel is set but all payment methods are empty.")
+        else:
+            warn.append("Payment channel is not set.")
+
+        if await db.shop_is_open_db():
+            if _role_exists(gk.TOS_AGREED_ROLE):
+                ok.append("Shop is open and TOS role exists.")
+            else:
+                err.append("Shop is open but TOS agreed role is missing.")
+        else:
+            ok.append("Shop is currently closed.")
+
+        btns = await db.list_ticket_buttons(guild.id)
+        if btns:
+            if _channel_exists(gk.TICKET_CATEGORY):
+                ok.append("Ticket buttons exist and ticket category is configured.")
+            else:
+                err.append("Ticket buttons exist but New tickets category is missing.")
+        else:
+            warn.append("No ticket buttons configured yet.")
+
+        wt = rows.get(gk.WARN_THRESHOLD_KEY)
+        if wt is not None:
+            if _channel_exists(gk.WARN_LOG_CHANNEL):
+                ok.append("Warn threshold and warn log channel are configured.")
+            else:
+                err.append("Warn threshold is set but warn log channel is missing.")
+        else:
+            warn.append("Warn threshold uses default (3).")
+
+        if _channel_exists(gk.TOS_CHANNEL):
+            panel = await db.get_persist_panel("tos")
+            if panel:
+                ok.append("TOS channel is set and TOS panel was deployed.")
+            else:
+                warn.append("TOS channel is set but TOS panel is not deployed yet (`/deploy tos`).")
+        else:
+            warn.append("TOS channel is not set.")
+
+        total_checks = len(ok) + len(warn) + len(err)
+        lines = []
+        lines.extend([f"✅ {x}" for x in ok])
+        lines.extend([f"⚠️ {x}" for x in warn])
+        lines.extend([f"❌ {x}" for x in err])
+        summary = f"Checks: **{total_checks}** | ✅ {len(ok)} | ⚠️ {len(warn)} | ❌ {len(err)}"
+        emb = info_embed("Configuration health check", "\n".join(lines)[:3900] or "No checks run.")
+        emb.add_field(name="Summary", value=summary, inline=False)
+        await interaction.response.send_message(embed=emb, ephemeral=True)
+
     @config.command(name="reset", description="Clear one configuration group (requires confirmation)")
     @app_commands.describe(group="Which group to clear")
     @app_commands.choices(

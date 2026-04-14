@@ -28,6 +28,7 @@ TOS_CHANNEL = "tos_channel"
 VERIFICATION_CHANNEL = "verification_channel"
 PAYMENT_CHANNEL = "payment_channel"
 WARN_LOG_CHANNEL = "warn_log_channel"
+ERROR_ALERT_CHANNEL = "error_alert_channel"
 
 CHANNEL_SLOT_CHOICES: list[tuple[str, str]] = [
     ("Queue (order list)", QUEUE_CHANNEL),
@@ -40,6 +41,7 @@ CHANNEL_SLOT_CHOICES: list[tuple[str, str]] = [
     ("Age / ID verification (optional)", VERIFICATION_CHANNEL),
     ("Payment panel", PAYMENT_CHANNEL),
     ("Warn log", WARN_LOG_CHANNEL),
+    ("Bot error alerts", ERROR_ALERT_CHANNEL),
 ]
 
 CATEGORY_SLOT_CHOICES: list[tuple[str, str]] = [
