@@ -1,5 +1,11 @@
 # Config (`cogs/config_cmd.py`)
 
+## Table of contents
+
+- [`/config view`](#config-view)
+- [`/config reset`](#config-reset)
+- [`/config payment`](#config-payment-subcommands)
+
 **Who can use it:** `can_manage_server_config` — **Administrator**, **Manage Server**, **or** mapped **staff role** (`utils/checks.py`).
 
 Guild data lives in SQLite: **`guild_settings`** (integer channel/role IDs and numeric values), **`guild_string_settings`** (text/URLs), plus quote tables managed by **`/config reset` → pricing**.

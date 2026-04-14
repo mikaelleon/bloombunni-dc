@@ -2,7 +2,7 @@
 
 ## Purpose
 
-**Mika Shop** is a Discord commission bot: configurable ticket panels, quotes, queue cards, payments, vouches, warnings, stickies, and staff utilities. It uses **discord.py** with **application commands** (slash). The legacy prefix `!` is set on the `commands.Bot` instance but the cogs primarily expose slash commands.
+**Mika Shop** is a Discord commission bot: configurable ticket panels, quotes, queue cards, payments, vouches, warnings, stickies, and staff utilities. It uses **discord.py** with **application commands** (slash). Prefix `!` exists at bot level, but feature cogs expose slash-first UX.
 
 ## Entry point (`main.py`)
 

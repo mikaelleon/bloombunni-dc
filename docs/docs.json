@@ -191,18 +191,8 @@
       "slashCommands": [],
       "related": ["config.md", "tickets-and-panels.md"],
       "topics": ["sqlite", "migrations"]
-    },
-    {
-      "id": "ticketing-legacy",
-      "file": "TICKETING.md",
-      "title": "Ticketing system (legacy)",
-      "summary": "Older narrative doc; superseded by tickets-and-panels.md and config.md for current commands.",
-      "cogModules": ["cogs/tickets.py"],
-      "slashCommands": [],
-      "related": ["tickets-and-panels.md", "config.md"],
-      "legacy": true,
-      "topics": ["ticketing"]
     }
+    
   ],
   "sqlTables": [
     { "name": "tickets", "purpose": "Per-channel ticket records, quotes, status, revisions, references" },
@@ -212,7 +202,7 @@
     { "name": "loyalty", "purpose": "Completed order counts per client" },
     { "name": "tos_agreements", "purpose": "TOS button agreement log" },
     { "name": "shop_state", "purpose": "Global commissions open/closed" },
-    { "name": "queue_message", "purpose": "Legacy queue pointer" },
+    { "name": "queue_message", "purpose": "Queue panel message pointer row" },
     { "name": "drops", "purpose": "Logged delivery drops" },
     { "name": "message_templates", "purpose": "DB overrides for templates.json" },
     { "name": "persist_panels", "purpose": "TOS, shop status, payment panel message locations" },

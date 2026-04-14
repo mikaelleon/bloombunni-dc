@@ -15,13 +15,13 @@
 | **`loyalty`** | Per-client completed order counts. |
 | **`tos_agreements`** | User id → agreed timestamp (button flow). |
 | **`shop_state`** | Single row: open flag, last toggle time, toggled_by. |
-| **`queue_message`** | Legacy/global queue pointer (single-row style in schema). |
+| **`queue_message`** | Queue message pointer row (single-row style in schema). |
 | **`drops`** | Logged delivery links. |
 | **`message_templates`** | Overrides for `templates.json` keys. |
 | **`persist_panels`** | Panel name → channel/message id (**tos**, **shop_status**, **payment**, etc.). |
 | **`sticky_messages`** | Per-channel sticky config + last posted message id. |
 | **`guild_settings`** | `(guild_id, setting_key) → integer` — channels, roles, warn threshold, payment channel id, etc. Keys in **`guild_keys.py`**. |
-| **`guild_string_settings`** | `(guild_id, setting_key) → text` — order prefix, payment URLs, GCash body, etc. |
+| **`guild_string_settings`** | `(guild_id, setting_key) → text` — order prefix, payment URLs, GCash body, warn reason preset JSON, etc. |
 | **`ticket_panel`** | One row per guild: panel message location + embed title/description/color/footer. |
 | **`ticket_buttons`** | Button definitions: label, emoji, color, category, form JSON, select options, age gate. |
 | **`quote_guild_settings`** | Extras + brand name. |

@@ -1,5 +1,14 @@
 # Warnings (`cogs/warn.py`)
 
+## Table of contents
+
+- [Reason presets](#reason-presets-warn)
+- [`/warn` flow](#warn-flow-staff)
+- [Warn appeal tickets](#warn-appeal-tickets-nice-to-have)
+- [`/warns`](#warns-staff)
+- [`/clearwarn`](#clearwarn-staff)
+- [Data](#data)
+
 ## Reason presets (`/warn`)
 
 - **`reason`** supports **autocomplete**: built-in defaults plus **custom presets** stored per guild (`WARN_REASON_TEMPLATES_JSON`).
@@ -19,7 +28,7 @@
 2. **Two DMs** to the target (if DMs open):
    - **`⚠️ WARNED NOTICE !`** — original style (`DEFAULT_EMBED_COLOR`).
    - **Appeal** embed (`HINT_BLUE`) + button **Open warn appeal ticket** (`WarnAppealDMView`).
-3. **Staff audit log** — if **`WARN_LOG_CHANNEL`** is set, a **dedicated embed** is posted there (`📋 Warn — staff log`): member, moderator, reason text, warn ID, total vs threshold, **Issued in** (source channel). This is the **private** record; it is **not** the same embed as the old `info_embed("Warn issued", …)` line-only format.
+3. **Staff audit log** — if **`WARN_LOG_CHANNEL`** is set, a **dedicated embed** is posted there (`📋 Warn — staff log`): member, moderator, reason text, warn ID, total vs threshold, **Issued in** (source channel). This is private staff record.
 4. **Public channel** — short plain text in the channel where `/warn` was run:  
    `⚠️ @user now has N warning(s).` + `**reason**: …`  
    If that channel **is** the warn log channel, the **public** duplicate is skipped (only the audit embed is sent there) so staff are not spammed twice.

@@ -1,5 +1,14 @@
 # Tickets and panels (`cogs/tickets.py`)
 
+## Table of contents
+
+- [Panel commands](#panel-commands)
+- [Deploy group](#deploy-group-deploy)
+- [User flow](#user-flow-panel-button--ticket)
+- [Ticket workflow commands](#ticket-workflow-commands)
+- [Closing](#closing)
+- [Warn appeal channels](#warn-appeal-channels)
+
 Configurable **ticket panel** (embed + up to **five** buttons), **modal** intake with per-button JSON forms, **quote** integration, **payment** workflow commands, and **close + transcript**.
 
 **Permission:** most staff commands use **`@is_staff()`** (mapped **staff role** in guild settings).
