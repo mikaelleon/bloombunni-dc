@@ -260,6 +260,52 @@ async def _ensure_db_backup_schedule_table(db: aiosqlite.Connection) -> None:
     )
 
 
+async def _ensure_config_audit_schema(db: aiosqlite.Connection) -> None:
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS config_audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER NOT NULL,
+            changed_by INTEGER NOT NULL,
+            key TEXT NOT NULL,
+            old_value TEXT,
+            new_value TEXT,
+            changed_at TEXT NOT NULL
+        )
+        """
+    )
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS config_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER NOT NULL,
+            created_by INTEGER NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+
+
+async def _ensure_ticket_ops_schema(db: aiosqlite.Connection) -> None:
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ticket_notes (
+            note_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            channel_id INTEGER NOT NULL,
+            guild_id INTEGER NOT NULL,
+            author_id INTEGER NOT NULL,
+            note TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    cur = await db.execute("PRAGMA table_info(tickets)")
+    cols = {row[1] for row in await cur.fetchall()}
+    if "assigned_staff_id" not in cols:
+        await db.execute("ALTER TABLE tickets ADD COLUMN assigned_staff_id INTEGER")
+
+
 async def _migration_applied(db: aiosqlite.Connection, version: int) -> bool:
     cur = await db.execute(
         "SELECT 1 FROM schema_migrations WHERE version = ? LIMIT 1",
@@ -483,6 +529,8 @@ async def init_db() -> None:
         )
         await _run_migration(db, 7, "ensure_tos_version_schema", _ensure_tos_version_schema)
         await _run_migration(db, 8, "ensure_soft_delete_columns", _ensure_soft_delete_columns)
+        await _run_migration(db, 9, "ensure_config_audit_schema", _ensure_config_audit_schema)
+        await _run_migration(db, 10, "ensure_ticket_ops_schema", _ensure_ticket_ops_schema)
         await db.commit()
 
 
@@ -596,6 +644,106 @@ async def list_guild_string_settings(guild_id: int) -> dict[str, str]:
         )
         rows = await cur.fetchall()
         return {str(r["setting_key"]): str(r["value"]) for r in rows}
+
+
+async def log_config_change(
+    guild_id: int,
+    changed_by: int,
+    key: str,
+    old_value: str | None,
+    new_value: str | None,
+) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """
+            INSERT INTO config_audit_log (guild_id, changed_by, key, old_value, new_value, changed_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (guild_id, changed_by, key[:100], old_value, new_value, _utc_now()),
+        )
+        await db.commit()
+
+
+async def list_config_audit_log(guild_id: int, limit: int = 20) -> list[dict[str, Any]]:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            """
+            SELECT * FROM config_audit_log
+            WHERE guild_id = ?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (guild_id, int(limit)),
+        )
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def create_config_snapshot(guild_id: int, created_by: int) -> int:
+    payload = {
+        "settings": await list_guild_settings(guild_id),
+        "string_settings": await list_guild_string_settings(guild_id),
+    }
+    raw = json.dumps(payload, ensure_ascii=False)
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cur = await db.execute(
+            """
+            INSERT INTO config_snapshots (guild_id, created_by, payload_json, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (guild_id, created_by, raw, _utc_now()),
+        )
+        await db.commit()
+        return int(cur.lastrowid)
+
+
+async def list_config_snapshots(guild_id: int, limit: int = 5) -> list[dict[str, Any]]:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            """
+            SELECT * FROM config_snapshots
+            WHERE guild_id = ?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (guild_id, int(limit)),
+        )
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def apply_config_snapshot(guild_id: int, snapshot_id: int) -> bool:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT payload_json FROM config_snapshots WHERE id = ? AND guild_id = ?",
+            (snapshot_id, guild_id),
+        )
+        row = await cur.fetchone()
+        if not row:
+            return False
+        try:
+            payload = json.loads(str(row["payload_json"]))
+        except json.JSONDecodeError:
+            return False
+        settings = payload.get("settings", {}) or {}
+        str_settings = payload.get("string_settings", {}) or {}
+        await db.execute("DELETE FROM guild_settings WHERE guild_id = ?", (guild_id,))
+        await db.execute("DELETE FROM guild_string_settings WHERE guild_id = ?", (guild_id,))
+        for k, v in settings.items():
+            await db.execute(
+                "INSERT INTO guild_settings (guild_id, setting_key, value) VALUES (?, ?, ?)",
+                (guild_id, str(k), int(v)),
+            )
+        for k, v in str_settings.items():
+            await db.execute(
+                "INSERT INTO guild_string_settings (guild_id, setting_key, value) VALUES (?, ?, ?)",
+                (guild_id, str(k), str(v)),
+            )
+        await db.commit()
+        return True
 
 
 # --- Orders ---
@@ -753,6 +901,7 @@ _TICKET_UPDATEABLE: frozenset[str] = frozenset(
         "payment_proof_url",
         "close_approved_by_client",
         "close_approved_at",
+        "assigned_staff_id",
     }
 )
 
@@ -919,6 +1068,67 @@ async def get_ticket_by_channel(channel_id: int) -> dict[str, Any] | None:
         )
         row = await cur.fetchone()
         return dict(row) if row else None
+
+
+async def add_ticket_note(
+    channel_id: int,
+    guild_id: int,
+    author_id: int,
+    note: str,
+) -> int:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cur = await db.execute(
+            """
+            INSERT INTO ticket_notes (channel_id, guild_id, author_id, note, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (channel_id, guild_id, author_id, note, _utc_now()),
+        )
+        await db.commit()
+        return int(cur.lastrowid)
+
+
+async def list_ticket_notes(channel_id: int) -> list[dict[str, Any]]:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            """
+            SELECT * FROM ticket_notes
+            WHERE channel_id = ?
+            ORDER BY note_id ASC
+            """,
+            (channel_id,),
+        )
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def list_open_tickets_for_staff(
+    guild_id: int, staff_id: int | None = None
+) -> list[dict[str, Any]]:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        if staff_id is None:
+            cur = await db.execute(
+                """
+                SELECT * FROM tickets
+                WHERE guild_id = ? AND closed_at IS NULL AND deleted_at IS NULL
+                ORDER BY opened_at DESC
+                """,
+                (guild_id,),
+            )
+        else:
+            cur = await db.execute(
+                """
+                SELECT * FROM tickets
+                WHERE guild_id = ? AND closed_at IS NULL AND deleted_at IS NULL
+                  AND assigned_staff_id = ?
+                ORDER BY opened_at DESC
+                """,
+                (guild_id, staff_id),
+            )
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
 
 
 async def close_ticket_record(channel_id: int, transcript_sent: int) -> None:

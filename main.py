@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import traceback
 from datetime import datetime, timedelta, timezone
@@ -138,6 +139,25 @@ class MikaBot(commands.Bot):
 bot = MikaBot()
 
 
+async def _run_startup_task_with_retry(task_name: str, coro_factory) -> bool:
+    waits = (0, 2, 5, 15)
+    last_err: Exception | None = None
+    for idx, w in enumerate(waits):
+        if w:
+            await asyncio.sleep(w)
+        try:
+            await coro_factory()
+            if idx > 0:
+                log.info("startup_task_recovered task=%s attempt=%s", task_name, idx + 1)
+            return True
+        except Exception as e:
+            last_err = e
+            log.warning("startup_task_failed task=%s attempt=%s err=%s", task_name, idx + 1, e)
+    if last_err:
+        log.error("startup_task_giveup task=%s err=%s", task_name, last_err)
+    return False
+
+
 @bot.event
 async def on_interaction(interaction: discord.Interaction) -> None:
     """Log slash / component usage for support and auditing (INFO)."""
@@ -162,10 +182,16 @@ async def on_ready() -> None:
     log.info("ready user=%s id=%s latency_ms=%s", bot.user, bot.user.id if bot.user else None, round(bot.latency * 1000))
     shop = bot.get_cog("ShopCog")
     if shop and hasattr(shop, "refresh_status_message"):
-        await shop.refresh_status_message()
+        await _run_startup_task_with_retry(
+            "refresh_status_message",
+            shop.refresh_status_message,
+        )
     sticky = bot.get_cog("StickyCog")
     if sticky and hasattr(sticky, "refresh_sticky_cache"):
-        await sticky.refresh_sticky_cache()
+        await _run_startup_task_with_retry(
+            "refresh_sticky_cache",
+            sticky.refresh_sticky_cache,
+        )
 
     for g in bot.guilds:
         try:

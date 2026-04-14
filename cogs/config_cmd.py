@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import io
+
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -66,6 +69,7 @@ class ConfirmResetView(discord.ui.View):
         int_keys: list[str],
         str_keys: list[str],
         pricing: bool,
+        changed_by: int,
     ) -> None:
         super().__init__(timeout=120.0)
         self.guild_id = guild_id
@@ -73,20 +77,37 @@ class ConfirmResetView(discord.ui.View):
         self.int_keys = int_keys
         self.str_keys = str_keys
         self.pricing = pricing
+        self.changed_by = changed_by
 
     @discord.ui.button(label="Confirm reset", style=discord.ButtonStyle.danger)
     async def confirm(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ) -> None:
         if self.pricing:
+            await db.create_config_snapshot(self.guild_id, self.changed_by)
             await db.clear_quote_data_for_guild(self.guild_id)
+            await db.log_config_change(
+                self.guild_id,
+                self.changed_by,
+                "config.reset.pricing",
+                "quote data present",
+                "cleared",
+            )
             await interaction.response.edit_message(
                 embed=success_embed("Reset", "Quote prices and related rows cleared for this server."),
                 view=None,
             )
             return
+        await db.create_config_snapshot(self.guild_id, self.changed_by)
         await db.delete_guild_settings_keys(self.guild_id, self.int_keys)
         await db.delete_guild_string_settings_keys(self.guild_id, self.str_keys)
+        await db.log_config_change(
+            self.guild_id,
+            self.changed_by,
+            f"config.reset.{self.group}",
+            f"int_keys={len(self.int_keys)},str_keys={len(self.str_keys)}",
+            "cleared",
+        )
         await interaction.response.edit_message(
             embed=success_embed(
                 "Reset",
@@ -114,6 +135,34 @@ class ConfigCog(commands.Cog, name="ConfigCog"):
         parent=config,
     )
 
+    async def _record_string_change(
+        self,
+        guild_id: int,
+        changed_by: int,
+        key: str,
+        new_value: str,
+    ) -> None:
+        old = await db.get_guild_string_setting(guild_id, key)
+        await db.set_guild_string_setting(guild_id, key, new_value)
+        await db.log_config_change(guild_id, changed_by, key, old, new_value)
+
+    async def _record_int_change(
+        self,
+        guild_id: int,
+        changed_by: int,
+        key: str,
+        new_value: int,
+    ) -> None:
+        old = await db.get_guild_setting(guild_id, key)
+        await db.set_guild_setting(guild_id, key, new_value)
+        await db.log_config_change(
+            guild_id,
+            changed_by,
+            key,
+            str(old) if old is not None else None,
+            str(new_value),
+        )
+
     @config_payment.command(
         name="gcash_details",
         description="Body text for the GCash button (name, number, instructions)",
@@ -130,7 +179,7 @@ class ConfigCog(commands.Cog, name="ConfigCog"):
             return
         if not interaction.guild:
             return
-        await db.set_guild_string_setting(interaction.guild.id, gk.PAYMENT_GCASH_DETAILS, t)
+        await self._record_string_change(interaction.guild.id, interaction.user.id, gk.PAYMENT_GCASH_DETAILS, t)
         await interaction.response.send_message(
             embed=success_embed("Saved", "GCash embed body updated."),
             ephemeral=True,
@@ -148,8 +197,11 @@ class ConfigCog(commands.Cog, name="ConfigCog"):
             return
         if not interaction.guild:
             return
-        await db.set_guild_string_setting(
-            interaction.guild.id, gk.PAYMENT_PAYPAL_LINK, url.strip()
+        await self._record_string_change(
+            interaction.guild.id,
+            interaction.user.id,
+            gk.PAYMENT_PAYPAL_LINK,
+            url.strip(),
         )
         await interaction.response.send_message(
             embed=success_embed("Saved", "PayPal link updated."),
@@ -168,8 +220,11 @@ class ConfigCog(commands.Cog, name="ConfigCog"):
             return
         if not interaction.guild:
             return
-        await db.set_guild_string_setting(
-            interaction.guild.id, gk.PAYMENT_KOFI_LINK, url.strip()
+        await self._record_string_change(
+            interaction.guild.id,
+            interaction.user.id,
+            gk.PAYMENT_KOFI_LINK,
+            url.strip(),
         )
         await interaction.response.send_message(
             embed=success_embed("Saved", "Ko-fi link updated."),
@@ -191,8 +246,11 @@ class ConfigCog(commands.Cog, name="ConfigCog"):
             return
         if not interaction.guild:
             return
-        await db.set_guild_string_setting(
-            interaction.guild.id, gk.PAYMENT_GCASH_QR_URL, url.strip()
+        await self._record_string_change(
+            interaction.guild.id,
+            interaction.user.id,
+            gk.PAYMENT_GCASH_QR_URL,
+            url.strip(),
         )
         await interaction.response.send_message(
             embed=success_embed("Saved", "GCash QR image URL updated."),
@@ -214,8 +272,11 @@ class ConfigCog(commands.Cog, name="ConfigCog"):
             return
         if not interaction.guild:
             return
-        await db.set_guild_string_setting(
-            interaction.guild.id, gk.PAYMENT_PAYPAL_QR_URL, url.strip()
+        await self._record_string_change(
+            interaction.guild.id,
+            interaction.user.id,
+            gk.PAYMENT_PAYPAL_QR_URL,
+            url.strip(),
         )
         await interaction.response.send_message(
             embed=success_embed("Saved", "PayPal QR image URL updated."),
@@ -258,7 +319,12 @@ class ConfigCog(commands.Cog, name="ConfigCog"):
     ) -> None:
         if not interaction.guild:
             return
-        await db.set_guild_setting(interaction.guild.id, gk.ERROR_ALERT_CHANNEL, channel.id)
+        await self._record_int_change(
+            interaction.guild.id,
+            interaction.user.id,
+            gk.ERROR_ALERT_CHANNEL,
+            channel.id,
+        )
         await interaction.response.send_message(
             embed=success_embed(
                 "Saved",
@@ -420,7 +486,7 @@ class ConfigCog(commands.Cog, name="ConfigCog"):
             return
         if group == "pricing":
             view = ConfirmResetView(
-                interaction.guild.id, group, [], [], pricing=True
+                interaction.guild.id, group, [], [], pricing=True, changed_by=interaction.user.id
             )
             await interaction.response.send_message(
                 embed=user_warn(
@@ -434,7 +500,7 @@ class ConfigCog(commands.Cog, name="ConfigCog"):
 
         int_keys, str_keys = RESET_GROUP_KEYS[group]
         view = ConfirmResetView(
-            interaction.guild.id, group, int_keys, str_keys, pricing=False
+            interaction.guild.id, group, int_keys, str_keys, pricing=False, changed_by=interaction.user.id
         )
         await interaction.response.send_message(
             embed=user_warn(
@@ -442,6 +508,138 @@ class ConfigCog(commands.Cog, name="ConfigCog"):
                 f"This removes saved **{group}** keys from the database. Continue?",
             ),
             view=view,
+            ephemeral=True,
+        )
+
+    @config.command(name="log", description="Show recent config change log")
+    @can_manage_server_config()
+    async def config_log(self, interaction: discord.Interaction) -> None:
+        if not interaction.guild:
+            return
+        rows = await db.list_config_audit_log(interaction.guild.id, 20)
+        if not rows:
+            await interaction.response.send_message(
+                embed=info_embed("Config log", "No config changes logged yet."),
+                ephemeral=True,
+            )
+            return
+        lines = []
+        for r in rows:
+            lines.append(
+                f"`{r['changed_at']}` key=`{r['key']}` by <@{r['changed_by']}>\n"
+                f"old: `{(r.get('old_value') or 'None')[:80]}` -> new: `{(r.get('new_value') or 'None')[:80]}`"
+            )
+        chunks = chunk_lines(lines, max_chars=3500)
+        pages = [
+            info_embed(f"Config change log ({i + 1}/{len(chunks)})", c[:4000])
+            for i, c in enumerate(chunks)
+        ]
+        if len(pages) == 1:
+            await interaction.response.send_message(embed=pages[0], ephemeral=True)
+            return
+        view = PagedEmbedView(pages, interaction.user.id)
+        await interaction.response.send_message(embed=pages[0], view=view, ephemeral=True)
+
+    @config.command(name="export", description="Export current guild config JSON")
+    @can_manage_server_config()
+    async def config_export(self, interaction: discord.Interaction) -> None:
+        if not interaction.guild:
+            return
+        payload = {
+            "guild_id": interaction.guild.id,
+            "settings": await db.list_guild_settings(interaction.guild.id),
+            "string_settings": await db.list_guild_string_settings(interaction.guild.id),
+        }
+        raw = json.dumps(payload, ensure_ascii=False, indent=2)
+        await interaction.response.send_message(
+            embed=success_embed("Config export", "Attached JSON export file."),
+            file=discord.File(fp=io.BytesIO(raw.encode("utf-8")), filename="config-export.json"),
+            ephemeral=True,
+        )
+
+    @config.command(name="import", description="Import config JSON and apply after confirmation snapshot")
+    @app_commands.describe(file="JSON file exported from /config export")
+    @can_manage_server_config()
+    async def config_import(self, interaction: discord.Interaction, file: discord.Attachment) -> None:
+        if not interaction.guild:
+            return
+        if not file.filename.lower().endswith(".json"):
+            await interaction.response.send_message(
+                embed=user_hint("Invalid file", "Attach `.json` config export file."),
+                ephemeral=True,
+            )
+            return
+        raw = (await file.read()).decode("utf-8", errors="replace")
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            await interaction.response.send_message(
+                embed=user_hint("Invalid JSON", "Could not parse file."),
+                ephemeral=True,
+            )
+            return
+        settings = payload.get("settings", {}) or {}
+        str_settings = payload.get("string_settings", {}) or {}
+        await db.create_config_snapshot(interaction.guild.id, interaction.user.id)
+        cur_int = list((await db.list_guild_settings(interaction.guild.id)).keys())
+        cur_str = list((await db.list_guild_string_settings(interaction.guild.id)).keys())
+        await db.delete_guild_settings_keys(interaction.guild.id, cur_int)
+        await db.delete_guild_string_settings_keys(interaction.guild.id, cur_str)
+        for k, v in settings.items():
+            await db.set_guild_setting(interaction.guild.id, str(k), int(v))
+            await db.log_config_change(interaction.guild.id, interaction.user.id, str(k), None, str(v))
+        for k, v in str_settings.items():
+            await db.set_guild_string_setting(interaction.guild.id, str(k), str(v))
+            await db.log_config_change(interaction.guild.id, interaction.user.id, str(k), None, str(v))
+        await interaction.response.send_message(
+            embed=success_embed("Config import complete", "Imported values applied."),
+            ephemeral=True,
+        )
+
+    @config.command(name="restore", description="Restore config from recent snapshot id")
+    @app_commands.describe(snapshot_id="Snapshot id from `/config snapshots`")
+    @can_manage_server_config()
+    async def config_restore(self, interaction: discord.Interaction, snapshot_id: int) -> None:
+        if not interaction.guild:
+            return
+        await db.create_config_snapshot(interaction.guild.id, interaction.user.id)
+        ok = await db.apply_config_snapshot(interaction.guild.id, snapshot_id)
+        if not ok:
+            await interaction.response.send_message(
+                embed=user_hint("Restore failed", "Snapshot id not found for this guild."),
+                ephemeral=True,
+            )
+            return
+        await db.log_config_change(
+            interaction.guild.id,
+            interaction.user.id,
+            "config.restore",
+            None,
+            f"snapshot:{snapshot_id}",
+        )
+        await interaction.response.send_message(
+            embed=success_embed("Config restored", f"Applied snapshot **#{snapshot_id}**."),
+            ephemeral=True,
+        )
+
+    @config.command(name="snapshots", description="List recent config snapshots")
+    @can_manage_server_config()
+    async def config_snapshots(self, interaction: discord.Interaction) -> None:
+        if not interaction.guild:
+            return
+        rows = await db.list_config_snapshots(interaction.guild.id, 5)
+        if not rows:
+            await interaction.response.send_message(
+                embed=info_embed("Config snapshots", "No snapshots yet."),
+                ephemeral=True,
+            )
+            return
+        lines = [
+            f"**#{r['id']}** — `{r['created_at']}` by <@{r['created_by']}>"
+            for r in rows
+        ]
+        await interaction.response.send_message(
+            embed=info_embed("Recent config snapshots", "\n".join(lines)),
             ephemeral=True,
         )
 

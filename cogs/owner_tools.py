@@ -243,6 +243,51 @@ class OwnerToolsCog(commands.Cog, name="OwnerToolsCog"):
             ephemeral=True,
         )
 
+    @app_commands.command(name="reload", description="Reload one cog module (server owner)")
+    @app_commands.describe(cog="Cog short name, e.g. tickets, quotes, queue")
+    @is_guild_owner()
+    async def reload_cog(self, interaction: discord.Interaction, cog: str) -> None:
+        await interaction.response.defer(ephemeral=True)
+        short = cog.strip().lower().replace(".py", "")
+        ext = short if short.startswith("cogs.") else f"cogs.{short}"
+        try:
+            if ext in self.bot.extensions:
+                await self.bot.reload_extension(ext)
+            else:
+                await self.bot.load_extension(ext)
+        except Exception as e:
+            await interaction.followup.send(
+                embed=user_warn("Reload failed", f"`{ext}` -> {type(e).__name__}: {e}"),
+                ephemeral=True,
+            )
+            return
+        await interaction.followup.send(
+            embed=success_embed("Reloaded", f"Extension `{ext}` reloaded."),
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="reloadall", description="Reload all loaded cogs (server owner)")
+    @is_guild_owner()
+    async def reload_all_cogs(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        failed: list[str] = []
+        ok = 0
+        for ext in list(self.bot.extensions.keys()):
+            if not ext.startswith("cogs."):
+                continue
+            try:
+                await self.bot.reload_extension(ext)
+                ok += 1
+            except Exception as e:
+                failed.append(f"{ext}: {type(e).__name__}: {e}")
+        msg = f"Reloaded {ok} extension(s)."
+        if failed:
+            msg += "\n\nFailed:\n" + "\n".join(f"- {x}" for x in failed[:10])
+        await interaction.followup.send(
+            embed=success_embed("Reload all", msg),
+            ephemeral=True,
+        )
+
 
 async def setup(bot: commands.Bot) -> None:
     cog = OwnerToolsCog(bot)

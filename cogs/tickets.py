@@ -752,6 +752,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
     payment = app_commands.Group(name="payment", description="Ticket payment workflow")
     revision = app_commands.Group(name="revision", description="Ticket revision tracking")
     references = app_commands.Group(name="references", description="Ticket reference links")
+    note = app_commands.Group(name="note", description="Internal staff notes")
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
@@ -1981,6 +1982,160 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         body = "\n".join(f"{i + 1}. {u}" for i, u in enumerate(links))[:3900]
         await interaction.response.send_message(
             embed=info_embed("Reference links", body), ephemeral=True
+        )
+
+    @note.command(name="add", description="Add internal staff note for this ticket")
+    @app_commands.describe(message="Private staff handoff/context note")
+    @is_staff()
+    async def note_add_cmd(self, interaction: discord.Interaction, message: str) -> None:
+        if not interaction.guild or not isinstance(interaction.channel, discord.TextChannel):
+            await interaction.response.send_message(
+                embed=user_hint("Ticket only", "Use this inside ticket channel."),
+                ephemeral=True,
+            )
+            return
+        t = await db.get_ticket_by_channel(interaction.channel.id)
+        if not t:
+            await interaction.response.send_message(
+                embed=user_hint("Not a ticket", "No open ticket here."),
+                ephemeral=True,
+            )
+            return
+        text = message.strip()[:1800]
+        nid = await db.add_ticket_note(interaction.channel.id, interaction.guild.id, interaction.user.id, text)
+        emb = discord.Embed(
+            title="🔒 Staff note",
+            description=text,
+            color=PRIMARY,
+        )
+        emb.set_footer(text=f"Note #{nid} • internal")
+        await interaction.response.send_message(embed=emb)
+
+    @note.command(name="list", description="List internal notes for this ticket")
+    @is_staff()
+    async def note_list_cmd(self, interaction: discord.Interaction) -> None:
+        if not interaction.guild or not isinstance(interaction.channel, discord.TextChannel):
+            await interaction.response.send_message(
+                embed=user_hint("Ticket only", "Use this inside ticket channel."),
+                ephemeral=True,
+            )
+            return
+        t = await db.get_ticket_by_channel(interaction.channel.id)
+        if not t:
+            await interaction.response.send_message(
+                embed=user_hint("Not a ticket", "No open ticket here."),
+                ephemeral=True,
+            )
+            return
+        rows = await db.list_ticket_notes(interaction.channel.id)
+        if not rows:
+            await interaction.response.send_message(
+                embed=info_embed("Ticket notes", "No staff notes yet."),
+                ephemeral=True,
+            )
+            return
+        lines = [
+            f"**#{r['note_id']}** `{r['created_at']}` by <@{r['author_id']}>\n{str(r['note'])[:220]}"
+            for r in rows[-15:]
+        ]
+        await interaction.response.send_message(
+            embed=info_embed("Ticket notes", "\n\n".join(lines)[:3900]),
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="assign", description="Assign or unassign ticket handler (staff)")
+    @app_commands.describe(member="Staff member to assign (leave empty to unassign)")
+    @is_staff()
+    async def assign_cmd(self, interaction: discord.Interaction, member: discord.Member | None = None) -> None:
+        if not interaction.guild or not isinstance(interaction.channel, discord.TextChannel):
+            await interaction.response.send_message(
+                embed=user_hint("Ticket only", "Use this in ticket channel."),
+                ephemeral=True,
+            )
+            return
+        t = await db.get_ticket_by_channel(interaction.channel.id)
+        if not t:
+            await interaction.response.send_message(
+                embed=user_hint("Not a ticket", "No open ticket here."),
+                ephemeral=True,
+            )
+            return
+        rid = await db.get_guild_setting(interaction.guild.id, gk.STAFF_ROLE)
+        staff_role = interaction.guild.get_role(int(rid)) if rid else None
+        if member is not None and staff_role and staff_role not in member.roles:
+            await interaction.response.send_message(
+                embed=user_hint("Invalid assignee", "Target member is not in configured staff role."),
+                ephemeral=True,
+            )
+            return
+        await db.update_ticket_fields(
+            interaction.channel.id,
+            assigned_staff_id=member.id if member else None,
+        )
+        if member:
+            try:
+                await member.send(
+                    embed=info_embed(
+                        "Ticket assigned",
+                        f"You were assigned to `{interaction.channel.name}` in **{interaction.guild.name}**.",
+                    )
+                )
+            except discord.Forbidden:
+                pass
+        await interaction.response.send_message(
+            embed=success_embed(
+                "Assignment updated",
+                f"Assigned to {member.mention}." if member else "Ticket unassigned.",
+            ),
+            ephemeral=False,
+        )
+
+    @app_commands.command(name="mytickets", description="List tickets assigned to you (staff)")
+    @is_staff()
+    async def mytickets_cmd(self, interaction: discord.Interaction) -> None:
+        if not interaction.guild:
+            return
+        rows = await db.list_open_tickets_for_staff(interaction.guild.id, interaction.user.id)
+        if not rows:
+            await interaction.response.send_message(
+                embed=info_embed("Assigned tickets", "No assigned open tickets."),
+                ephemeral=True,
+            )
+            return
+        lines = [f"<#{r['channel_id']}> — client <@{r['client_id']}>" for r in rows[:30]]
+        await interaction.response.send_message(
+            embed=info_embed("Assigned tickets", "\n".join(lines)),
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="ticketsearch", description="Search open tickets by channel/member term (staff)")
+    @app_commands.describe(query="Member ID, mention, name fragment, or channel fragment")
+    @is_staff()
+    async def ticketsearch_cmd(self, interaction: discord.Interaction, query: str) -> None:
+        if not interaction.guild:
+            return
+        q = query.strip().lower()
+        rows = await db.list_open_tickets_for_staff(interaction.guild.id, None)
+        hits: list[str] = []
+        for r in rows:
+            cid = int(r["client_id"])
+            chid = int(r["channel_id"])
+            ch = interaction.guild.get_channel(chid)
+            m = interaction.guild.get_member(cid)
+            c_name = (m.display_name if m else str(cid)).lower()
+            ch_name = (ch.name if isinstance(ch, discord.TextChannel) else str(chid)).lower()
+            if q in c_name or q in ch_name or q in str(cid) or q in str(chid):
+                assignee = f"<@{r['assigned_staff_id']}>" if r.get("assigned_staff_id") else "_unassigned_"
+                hits.append(f"<#{chid}> — client <@{cid}> — assignee {assignee}")
+        if not hits:
+            await interaction.response.send_message(
+                embed=info_embed("Ticket search", "No open tickets matched query."),
+                ephemeral=True,
+            )
+            return
+        await interaction.response.send_message(
+            embed=info_embed("Ticket search results", "\n".join(hits[:40])),
+            ephemeral=True,
         )
 
     @ticketbutton.command(
