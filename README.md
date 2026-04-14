@@ -29,7 +29,8 @@ A Discord bot for running a **small art commission shop** in your server: agree 
 
 ## Current progress
 
-Overall project progress: **80%**
+Overall core bot progress: **80%**
+Planned expansion systems (`plans/`) progress: **0%**
 
 - [x] Core ticketing flow (panel, open, close, transcript) - **100%**
 - [x] Queue and order management pipeline - **100%**
@@ -37,6 +38,13 @@ Overall project progress: **80%**
 - [x] Quote calculator and ticket quote integration - **100%**
 - [x] Staff moderation and utility commands (warn, sticky, drop, vouch) - **100%**
 - [ ] Remaining polish and optional enhancements from backlog - **20%**
+- [ ] Plan 01: MYO system (`plans/01_MYO_SYSTEM.md`) - **0%**
+- [ ] Plan 02: Batch and slot system (`plans/02_BATCH_SLOT_SYSTEM.md`) - **0%**
+- [ ] Plan 03: Currency system (`plans/03_CURRENCY_SYSTEM.md`) - **0%**
+- [ ] Plan 04: Gacha system (`plans/04_GACHA_SYSTEM.md`) - **0%**
+- [ ] Plan 05: Casino minigames (`plans/05_CASINO_MINIGAMES.md`) - **0%**
+- [ ] Plan 06: Collectible system (`plans/06_COLLECTIBLE_SYSTEM.md`) - **0%**
+- [ ] Plan 07: MYO content/config tools (`plans/07_MYO_CONTENT_CONFIG.md`) - **0%**
 
 ---
 
