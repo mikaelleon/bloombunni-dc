@@ -46,6 +46,23 @@ async def _safe_edit_component_message(
         return False
 
 
+async def _safe_edit_original_component_message(
+    interaction: discord.Interaction,
+    *,
+    embed: discord.Embed,
+    view: discord.ui.View | None,
+) -> bool:
+    try:
+        await interaction.edit_original_response(embed=embed, view=view)
+        return True
+    except discord.NotFound:
+        log.info("quote component original message no longer available")
+        return False
+    except discord.HTTPException as e:
+        log.warning("quote component original edit failed: %s", e)
+        return False
+
+
 @dataclass
 class QuoteSession:
     step: int = 0
@@ -115,10 +132,8 @@ class QuoteTierView(discord.ui.View):
 
         async def cb(interaction: discord.Interaction) -> None:
             v = interaction.data.get("values", [""])[0] if interaction.data else ""
-            await _safe_edit_component_message(
-                interaction,
-                embed=info_embed("Quote — step 3/7", "How many **characters**?"),
-                view=QuoteCharView(self.cog, target, self.commission_type, str(v)),
+            await interaction.response.send_modal(
+                QuoteCharacterCountModal(self.cog, target, self.commission_type, str(v))
             )
 
         sel.callback = cb
@@ -156,6 +171,49 @@ class QuoteCharView(discord.ui.View):
 
         sel.callback = cb
         self.add_item(sel)
+
+
+class QuoteCharacterCountModal(discord.ui.Modal, title="Quote — step 3/7"):
+    char_count = discord.ui.TextInput(
+        label="How many characters?",
+        placeholder="Enter integer (example: 2)",
+        required=True,
+        max_length=2,
+    )
+
+    def __init__(
+        self,
+        cog: "QuotesCog",
+        target: discord.Member,
+        commission_type: str,
+        tier: str,
+    ) -> None:
+        super().__init__()
+        self.cog = cog
+        self.target = target
+        self.commission_type = commission_type
+        self.tier = tier
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        raw = str(self.char_count.value or "").strip()
+        if not raw.isdigit():
+            await interaction.response.send_message(
+                embed=user_hint("Invalid number", "Enter whole number like `1`, `2`, or `3`."),
+                ephemeral=True,
+            )
+            return
+        count = int(raw)
+        if count < 1 or count > 20:
+            await interaction.response.send_message(
+                embed=user_hint("Out of range", "Character count must be between **1** and **20**."),
+                ephemeral=True,
+            )
+            return
+        await interaction.response.send_message(
+            embed=info_embed("Quote — step 4/7", "**Background** level?"),
+            view=QuoteBgView(self.cog, self.target, self.commission_type, self.tier, str(count)),
+            ephemeral=True,
+        )
 
 
 class SetPriceModal(discord.ui.Modal, title="Set base price (PHP)"):
@@ -318,6 +376,14 @@ class QuoteCurrencyView(discord.ui.View):
             cur = interaction.data.get("values", [""])[0] if interaction.data else "PHP"
             if not interaction.guild:
                 return
+            try:
+                await interaction.response.defer()
+            except discord.NotFound:
+                log.info("quote currency interaction expired before defer")
+                return
+            except discord.HTTPException as e:
+                log.warning("quote currency defer failed: %s", e)
+                return
             if cur == "PHP":
                 data = await compute_quote_totals(
                     interaction.guild,
@@ -336,9 +402,9 @@ class QuoteCurrencyView(discord.ui.View):
                     pay_currency="PHP",
                     payment_method="GCash",
                 )
-                await _safe_edit_component_message(interaction, embed=emb, view=None)
+                await _safe_edit_original_component_message(interaction, embed=emb, view=None)
                 return
-            await _safe_edit_component_message(
+            await _safe_edit_original_component_message(
                 interaction,
                 embed=info_embed(
                     "Quote — step 7/7",
@@ -391,6 +457,14 @@ class QuoteUsdMethodView(discord.ui.View):
             method = interaction.data.get("values", [""])[0] if interaction.data else "PayPal"
             if not interaction.guild:
                 return
+            try:
+                await interaction.response.defer()
+            except discord.NotFound:
+                log.info("quote usd method interaction expired before defer")
+                return
+            except discord.HTTPException as e:
+                log.warning("quote usd method defer failed: %s", e)
+                return
             data = await compute_quote_totals(
                 interaction.guild,
                 target,
@@ -408,7 +482,7 @@ class QuoteUsdMethodView(discord.ui.View):
                 pay_currency="USD",
                 payment_method=str(method),
             )
-            await _safe_edit_component_message(interaction, embed=emb, view=None)
+            await _safe_edit_original_component_message(interaction, embed=emb, view=None)
 
         sel.callback = cb
         self.add_item(sel)
