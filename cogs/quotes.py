@@ -138,6 +138,45 @@ class QuoteCharView(discord.ui.View):
         self.add_item(sel)
 
 
+class SetPriceModal(discord.ui.Modal, title="Set base price (PHP)"):
+    price_php = discord.ui.TextInput(
+        label="Price (PHP)",
+        placeholder="Example: 350",
+        required=True,
+        max_length=9,
+    )
+
+    def __init__(self, guild_id: int, commission_type: str, tier: str) -> None:
+        super().__init__()
+        self.guild_id = guild_id
+        self.commission_type = commission_type
+        self.tier = tier
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        raw = str(self.price_php.value or "").strip().replace(",", "")
+        if not raw.isdigit():
+            await interaction.response.send_message(
+                embed=user_hint("Invalid price", "Use whole number like `350`."),
+                ephemeral=True,
+            )
+            return
+        value = int(raw)
+        if value < 0 or value > 10_000_000:
+            await interaction.response.send_message(
+                embed=user_hint("Price out of range", "Use value between `0` and `10,000,000`."),
+                ephemeral=True,
+            )
+            return
+        await db.upsert_quote_base_price(self.guild_id, self.commission_type, self.tier, value)
+        await interaction.response.send_message(
+            embed=success_embed(
+                "Saved",
+                f"**{self.commission_type}** / **{self.tier}** → {fmt_php(value)}",
+            ),
+            ephemeral=True,
+        )
+
+
 class QuoteBgView(discord.ui.View):
     def __init__(
         self,
@@ -633,40 +672,23 @@ class QuotesCog(commands.Cog, name="QuotesCog"):
     @app_commands.command(name="setprice", description="Set base price (PHP) for a type + tier")
     @is_staff()
     @app_commands.describe(
-        commission_type=f"One of: {', '.join(COMMISSION_TYPES)}",
-        tier=f"One of: {', '.join(RENDERING_TIERS)}",
-        price_php="Price in PHP (whole pesos)",
+        commission_type="Commission type",
+        tier="Rendering tier",
+    )
+    @app_commands.choices(
+        commission_type=[app_commands.Choice(name=t, value=t) for t in COMMISSION_TYPES],
+        tier=[app_commands.Choice(name=t, value=t) for t in RENDERING_TIERS],
     )
     async def setprice_cmd(
         self,
         interaction: discord.Interaction,
         commission_type: str,
         tier: str,
-        price_php: app_commands.Range[int, 0, 10_000_000],
     ) -> None:
         if not interaction.guild:
             return
-        if commission_type not in COMMISSION_TYPES:
-            await interaction.response.send_message(
-                embed=user_hint("Invalid type", f"Use one of: {', '.join(COMMISSION_TYPES)}"),
-                ephemeral=True,
-            )
-            return
-        if tier not in RENDERING_TIERS:
-            await interaction.response.send_message(
-                embed=user_hint("Invalid tier", f"Use one of: {', '.join(RENDERING_TIERS)}"),
-                ephemeral=True,
-            )
-            return
-        await db.upsert_quote_base_price(
-            interaction.guild.id, commission_type, tier, int(price_php)
-        )
-        await interaction.response.send_message(
-            embed=success_embed(
-                "Saved",
-                f"**{commission_type}** / **{tier}** → {fmt_php(price_php)}",
-            ),
-            ephemeral=True,
+        await interaction.response.send_modal(
+            SetPriceModal(interaction.guild.id, commission_type, tier)
         )
 
     @app_commands.command(name="quoteextras", description="Set extra character & background add-ons (PHP)")
