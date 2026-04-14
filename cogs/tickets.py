@@ -6,6 +6,7 @@ import asyncio
 import io
 import json
 import re
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import discord
@@ -187,6 +188,84 @@ class CloseTicketView(discord.ui.View):
             )
             return
         await cog.handle_close_button(interaction)
+
+
+class QuoteApprovalView(discord.ui.View):
+    def __init__(self) -> None:
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Approve Quote",
+        style=discord.ButtonStyle.success,
+        custom_id="ticket_quote_approve",
+    )
+    async def approve(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not interaction.guild or not isinstance(interaction.channel, discord.TextChannel):
+            await interaction.response.send_message(
+                embed=user_hint("Ticket only", "Use this in your ticket channel."),
+                ephemeral=True,
+            )
+            return
+        ticket = await db.get_ticket_by_channel(interaction.channel.id)
+        if not ticket:
+            await interaction.response.send_message(
+                embed=user_hint("Not a ticket", "No open ticket here."),
+                ephemeral=True,
+            )
+            return
+        if interaction.user.id != int(ticket["client_id"]):
+            await interaction.response.send_message(
+                embed=user_warn("Client only", "Only ticket owner can approve quote."),
+                ephemeral=True,
+            )
+            return
+        await db.update_ticket_fields(
+            interaction.channel.id,
+            quote_approved=1,
+            ticket_status="quote_approved",
+        )
+        await interaction.response.send_message(
+            embed=success_embed("Quote approved", "Staff can now proceed with payment processing."),
+            ephemeral=False,
+        )
+
+    @discord.ui.button(
+        label="Request Quote Changes",
+        style=discord.ButtonStyle.secondary,
+        custom_id="ticket_quote_changes",
+    )
+    async def request_changes(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not interaction.guild or not isinstance(interaction.channel, discord.TextChannel):
+            await interaction.response.send_message(
+                embed=user_hint("Ticket only", "Use this in your ticket channel."),
+                ephemeral=True,
+            )
+            return
+        ticket = await db.get_ticket_by_channel(interaction.channel.id)
+        if not ticket:
+            await interaction.response.send_message(
+                embed=user_hint("Not a ticket", "No open ticket here."),
+                ephemeral=True,
+            )
+            return
+        if interaction.user.id != int(ticket["client_id"]):
+            await interaction.response.send_message(
+                embed=user_warn("Client only", "Only ticket owner can request quote changes."),
+                ephemeral=True,
+            )
+            return
+        await db.update_ticket_fields(
+            interaction.channel.id,
+            quote_approved=0,
+            ticket_status="quote_revision_requested",
+        )
+        await interaction.response.send_message(
+            embed=info_embed(
+                "Quote changes requested",
+                "Staff will review your requested changes. Use `/quote recalculate` after updates.",
+            ),
+            ephemeral=False,
+        )
 
 
 class CommissionTypeSelectView(discord.ui.View):
@@ -1216,6 +1295,19 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             hint = f"Please read and agree in <#{tos_cid}> first." if tos_cid else "Please agree to the TOS first."
             await interaction.response.send_message(embed=user_warn("Terms required", hint), ephemeral=True)
             return
+        if not await db.has_current_tos_agreement(interaction.user.id):
+            cur_ver = await db.get_current_tos_version()
+            tos_cid = await db.get_guild_setting(interaction.guild.id, gk.TOS_CHANNEL)
+            hint = (
+                f"TOS updated to version **v{cur_ver}**. Please re-agree in <#{tos_cid}> first."
+                if tos_cid
+                else f"TOS updated to version **v{cur_ver}**. Please re-agree first."
+            )
+            await interaction.response.send_message(
+                embed=user_warn("TOS updated", hint),
+                ephemeral=True,
+            )
+            return
 
         if int(row.get("require_age_verified") or 0):
             age_role = await get_role(interaction.guild, gk.AGE_VERIFIED_ROLE)
@@ -1398,6 +1490,9 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             "total_send_php": bd.get("total_send_php"),
             "total_send_usd": bd.get("total_send_usd"),
         }
+        quote_expiry_hours = 72
+        expires_at = datetime.now(timezone.utc) + timedelta(hours=quote_expiry_hours)
+        snap["quote_expires_at"] = expires_at.isoformat()
 
         full_answers: dict[str, str] = {
             "Commission Type": commission_type,
@@ -1423,6 +1518,10 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             char_count_key=char_key,
             rush_addon=1 if rush_addon else 0,
             ticket_status="awaiting_payment",
+            quote_expires_at=expires_at.isoformat(),
+            quote_approved=0,
+            payment_status="awaiting_payment",
+            close_approved_by_client=0,
         )
 
         try:
@@ -1440,6 +1539,16 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         )
         try:
             await ticket_ch.send(embed=q_emb)
+        except discord.HTTPException:
+            pass
+        try:
+            await ticket_ch.send(
+                embed=info_embed(
+                    "Quote approval needed",
+                    f"Please approve or request changes below.\nQuote expires in **{quote_expiry_hours}h**.",
+                ),
+                view=QuoteApprovalView(),
+            )
         except discord.HTTPException:
             pass
 
@@ -1534,6 +1643,95 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         )
 
     @payment.command(
+        name="proof",
+        description="Client submits payment proof URL in-ticket",
+    )
+    @app_commands.describe(url="Screenshot URL or payment receipt link")
+    async def payment_proof_cmd(
+        self,
+        interaction: discord.Interaction,
+        url: str,
+    ) -> None:
+        if not interaction.guild or not isinstance(interaction.channel, discord.TextChannel):
+            await interaction.response.send_message(
+                embed=user_hint("Ticket only", "Use this inside your ticket."),
+                ephemeral=True,
+            )
+            return
+        ticket = await db.get_ticket_by_channel(interaction.channel.id)
+        if not ticket:
+            await interaction.response.send_message(
+                embed=user_hint("Not a ticket", "No open ticket record for this channel."),
+                ephemeral=True,
+            )
+            return
+        if interaction.user.id != int(ticket["client_id"]):
+            await interaction.response.send_message(
+                embed=user_warn("Client only", "Only ticket owner can submit payment proof."),
+                ephemeral=True,
+            )
+            return
+        u = url.strip()
+        if not (u.startswith("http://") or u.startswith("https://")):
+            await interaction.response.send_message(
+                embed=user_hint("Invalid URL", "Provide full URL starting with `http://` or `https://`."),
+                ephemeral=True,
+            )
+            return
+        await db.update_ticket_fields(
+            interaction.channel.id,
+            payment_proof_url=u,
+            payment_status="awaiting_payment_review",
+            ticket_status="awaiting_payment_review",
+        )
+        await interaction.response.send_message(
+            embed=success_embed("Proof submitted", "Staff has been notified to review payment proof."),
+            ephemeral=False,
+        )
+
+    @payment.command(
+        name="status",
+        description="Set ticket payment status (staff)",
+    )
+    @app_commands.describe(state="New payment state")
+    @app_commands.choices(
+        state=[
+            app_commands.Choice(name="Awaiting payment", value="awaiting_payment"),
+            app_commands.Choice(name="Awaiting payment review", value="awaiting_payment_review"),
+            app_commands.Choice(name="Paid", value="paid"),
+            app_commands.Choice(name="Declined", value="payment_declined"),
+        ]
+    )
+    @is_staff()
+    async def payment_status_cmd(
+        self,
+        interaction: discord.Interaction,
+        state: str,
+    ) -> None:
+        if not interaction.guild or not isinstance(interaction.channel, discord.TextChannel):
+            await interaction.response.send_message(
+                embed=user_hint("Ticket only", "Use this inside buyer ticket."),
+                ephemeral=True,
+            )
+            return
+        ticket = await db.get_ticket_by_channel(interaction.channel.id)
+        if not ticket:
+            await interaction.response.send_message(
+                embed=user_hint("Not a ticket", "No open ticket record for this channel."),
+                ephemeral=True,
+            )
+            return
+        await db.update_ticket_fields(
+            interaction.channel.id,
+            payment_status=state,
+            ticket_status=state,
+        )
+        await interaction.response.send_message(
+            embed=success_embed("Payment status updated", f"Set to **{state}**."),
+            ephemeral=False,
+        )
+
+    @payment.command(
         name="confirm",
         description="Confirm payment received — register queue order and mark ticket in progress (staff)",
     )
@@ -1553,6 +1751,31 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             )
             return
         await interaction.response.defer(ephemeral=True)
+
+        expires_raw = ticket.get("quote_expires_at")
+        if expires_raw:
+            try:
+                exp_dt = datetime.fromisoformat(str(expires_raw))
+                if datetime.now(timezone.utc) > exp_dt:
+                    await interaction.followup.send(
+                        embed=user_warn(
+                            "Quote expired",
+                            "Quote already expired. Recalculate quote first (`/quote recalculate`).",
+                        ),
+                        ephemeral=True,
+                    )
+                    return
+            except ValueError:
+                pass
+        if not bool(int(ticket.get("quote_approved") or 0)):
+            await interaction.followup.send(
+                embed=user_warn(
+                    "Quote not approved",
+                    "Client must approve quote first (use quote approval buttons in ticket).",
+                ),
+                ephemeral=True,
+            )
+            return
 
         raw_ans = ticket.get("answers")
         try:
@@ -1587,6 +1810,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
                 interaction.channel.id,
                 ticket_status="in_progress",
                 downpayment_confirmed=1,
+                payment_status="paid",
             )
             try:
                 await interaction.channel.send(
@@ -1630,6 +1854,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             interaction.channel.id,
             ticket_status="in_progress",
             downpayment_confirmed=1,
+            payment_status="paid",
         )
         try:
             await interaction.channel.send(
@@ -1820,6 +2045,15 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
                 ephemeral=True,
             )
             return
+        if is_staff_u and not is_owner and not bool(int(ticket.get("close_approved_by_client") or 0)):
+            await interaction.response.send_message(
+                embed=user_warn(
+                    "Client approval required",
+                    "Client must approve closure first. Ask them to run **`/closeapprove`** in this ticket.",
+                ),
+                ephemeral=True,
+            )
+            return
 
         await interaction.response.defer(ephemeral=True)
 
@@ -1916,10 +2150,48 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
     async def close_cmd(self, interaction: discord.Interaction) -> None:
         await self._run_close(interaction)
 
+    @app_commands.command(
+        name="closeapprove",
+        description="Client approval for staff to close this ticket",
+    )
+    async def closeapprove_cmd(self, interaction: discord.Interaction) -> None:
+        if not interaction.guild or not isinstance(interaction.channel, discord.TextChannel):
+            await interaction.response.send_message(
+                embed=user_hint("Ticket only", "Use this inside your ticket."),
+                ephemeral=True,
+            )
+            return
+        ticket = await db.get_ticket_by_channel(interaction.channel.id)
+        if not ticket:
+            await interaction.response.send_message(
+                embed=user_hint("Not a ticket", "No open ticket here."),
+                ephemeral=True,
+            )
+            return
+        if interaction.user.id != int(ticket["client_id"]):
+            await interaction.response.send_message(
+                embed=user_warn("Client only", "Only ticket owner can approve closure."),
+                ephemeral=True,
+            )
+            return
+        await db.update_ticket_fields(
+            interaction.channel.id,
+            close_approved_by_client=1,
+            close_approved_at=datetime.now(timezone.utc).isoformat(),
+        )
+        await interaction.response.send_message(
+            embed=success_embed("Closure approved", "Staff may now close this ticket."),
+            ephemeral=False,
+        )
+
 
 async def register_ticket_persistent_views(bot: commands.Bot) -> None:
     try:
         bot.add_view(CloseTicketView())
+    except ValueError:
+        pass
+    try:
+        bot.add_view(QuoteApprovalView())
     except ValueError:
         pass
     panels = await db.all_ticket_panels()

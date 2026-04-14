@@ -91,6 +91,7 @@ WARN_REASON_TEMPLATES_JSON = "warn_reason_templates_json"
 
 # Integer settings (guild_settings) — warn threshold override; default 3 in code if unset
 WARN_THRESHOLD_KEY = "warn_threshold"
+QUEUE_CAPACITY_KEY = "queue_capacity"
 
 # Synthetic ticket panel button id for warn appeal tickets (not a real panel button)
 WARN_APPEAL_BUTTON_ID = "warn_appeal"

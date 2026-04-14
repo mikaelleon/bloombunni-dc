@@ -109,6 +109,13 @@ async def _ensure_tickets_extended_columns(db: aiosqlite.Connection) -> None:
         ("references_json", "TEXT"),
         ("downpayment_confirmed", "INTEGER DEFAULT 0"),
         ("active_hours_notified", "INTEGER DEFAULT 0"),
+        ("quote_expires_at", "TEXT"),
+        ("quote_approved", "INTEGER DEFAULT 0"),
+        ("payment_status", "TEXT DEFAULT 'awaiting_payment'"),
+        ("payment_proof_url", "TEXT"),
+        ("close_approved_by_client", "INTEGER DEFAULT 0"),
+        ("close_approved_at", "TEXT"),
+        ("deleted_at", "TEXT"),
     ]
     for name, typ in migrations:
         if name not in cols:
@@ -187,6 +194,44 @@ async def _ensure_quote_and_wizard_schema(db: aiosqlite.Connection) -> None:
         )
         """
     )
+
+
+async def _ensure_tos_version_schema(db: aiosqlite.Connection) -> None:
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tos_meta (
+            id INTEGER PRIMARY KEY DEFAULT 1,
+            current_version INTEGER NOT NULL DEFAULT 1
+        )
+        """
+    )
+    await db.execute(
+        """
+        INSERT INTO tos_meta (id, current_version)
+        VALUES (1, 1)
+        ON CONFLICT(id) DO NOTHING
+        """
+    )
+    cur = await db.execute("PRAGMA table_info(tos_agreements)")
+    cols = {row[1] for row in await cur.fetchall()}
+    if "tos_version" not in cols:
+        await db.execute(
+            "ALTER TABLE tos_agreements ADD COLUMN tos_version INTEGER NOT NULL DEFAULT 1"
+        )
+
+
+async def _ensure_soft_delete_columns(db: aiosqlite.Connection) -> None:
+    specs = {
+        "orders": "deleted_at",
+        "warns": "deleted_at",
+        "vouches": "deleted_at",
+        "loyalty": "deleted_at",
+    }
+    for table, col in specs.items():
+        cur = await db.execute(f"PRAGMA table_info({table})")
+        cols = {row[1] for row in await cur.fetchall()}
+        if col not in cols:
+            await db.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
 
 
 async def _ensure_schema_migrations_table(db: aiosqlite.Connection) -> None:
@@ -436,6 +481,8 @@ async def init_db() -> None:
         await _run_migration(
             db, 6, "ensure_db_backup_schedule_table", _ensure_db_backup_schedule_table
         )
+        await _run_migration(db, 7, "ensure_tos_version_schema", _ensure_tos_version_schema)
+        await _run_migration(db, 8, "ensure_soft_delete_columns", _ensure_soft_delete_columns)
         await db.commit()
 
 
@@ -561,7 +608,7 @@ async def count_orders_in_month(
     prefix = f"{p}-{month:02d}{year % 100:02d}-"
     async with aiosqlite.connect(DATABASE_PATH) as db:
         cur = await db.execute(
-            "SELECT COUNT(*) FROM orders WHERE order_id LIKE ?",
+            "SELECT COUNT(*) FROM orders WHERE order_id LIKE ? AND deleted_at IS NULL",
             (prefix + "%",),
         )
         row = await cur.fetchone()
@@ -571,7 +618,7 @@ async def count_orders_in_month(
 async def count_orders_for_buyer(client_id: int) -> int:
     async with aiosqlite.connect(DATABASE_PATH) as db:
         cur = await db.execute(
-            "SELECT COUNT(*) FROM orders WHERE client_id = ?", (client_id,)
+            "SELECT COUNT(*) FROM orders WHERE client_id = ? AND deleted_at IS NULL", (client_id,)
         )
         row = await cur.fetchone()
         return int(row[0]) if row else 0
@@ -628,7 +675,10 @@ async def set_order_queue_message_id(order_id: str, queue_message_id: int) -> No
 async def get_order(order_id: str) -> dict[str, Any] | None:
     async with aiosqlite.connect(DATABASE_PATH) as db:
         db.row_factory = aiosqlite.Row
-        cur = await db.execute("SELECT * FROM orders WHERE order_id = ?", (order_id,))
+        cur = await db.execute(
+            "SELECT * FROM orders WHERE order_id = ? AND deleted_at IS NULL",
+            (order_id,),
+        )
         row = await cur.fetchone()
         return dict(row) if row else None
 
@@ -637,7 +687,7 @@ async def update_order_status(order_id: str, status: str) -> None:
     now = _utc_now()
     async with aiosqlite.connect(DATABASE_PATH) as db:
         await db.execute(
-            "UPDATE orders SET status = ?, updated_at = ? WHERE order_id = ?",
+            "UPDATE orders SET status = ?, updated_at = ? WHERE order_id = ? AND deleted_at IS NULL",
             (status, now, order_id),
         )
         await db.commit()
@@ -652,10 +702,29 @@ async def list_orders_for_status_views() -> list[dict[str, Any]]:
             SELECT * FROM orders
             WHERE status IN ('Noted', 'Processing')
             AND queue_message_id IS NOT NULL
+            AND deleted_at IS NULL
             """,
         )
         rows = await cur.fetchall()
         return [dict(r) for r in rows]
+
+
+async def count_active_queue_orders(guild_id: int) -> int:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cur = await db.execute(
+            """
+            SELECT COUNT(*) FROM orders
+            WHERE status IN ('Noted', 'Processing')
+              AND deleted_at IS NULL
+              AND ticket_channel_id IN (
+                  SELECT channel_id FROM tickets
+                  WHERE guild_id = ? AND deleted_at IS NULL
+              )
+            """,
+            (guild_id,),
+        )
+        row = await cur.fetchone()
+        return int(row[0]) if row else 0
 
 
 # --- Tickets ---
@@ -678,6 +747,12 @@ _TICKET_UPDATEABLE: frozenset[str] = frozenset(
         "downpayment_confirmed",
         "active_hours_notified",
         "answers",
+        "quote_expires_at",
+        "quote_approved",
+        "payment_status",
+        "payment_proof_url",
+        "close_approved_by_client",
+        "close_approved_at",
     }
 )
 
@@ -807,7 +882,7 @@ async def get_open_ticket_by_user(
         cur = await db.execute(
             """
             SELECT * FROM tickets
-            WHERE client_id = ? AND guild_id = ? AND closed_at IS NULL
+            WHERE client_id = ? AND guild_id = ? AND closed_at IS NULL AND deleted_at IS NULL
             AND IFNULL(button_id, '') != 'warn_appeal'
             ORDER BY opened_at DESC LIMIT 1
             """,
@@ -825,7 +900,7 @@ async def get_open_warn_appeal_ticket(
         cur = await db.execute(
             """
             SELECT * FROM tickets
-            WHERE client_id = ? AND guild_id = ? AND closed_at IS NULL
+            WHERE client_id = ? AND guild_id = ? AND closed_at IS NULL AND deleted_at IS NULL
             AND button_id = 'warn_appeal'
             ORDER BY opened_at DESC LIMIT 1
             """,
@@ -839,7 +914,7 @@ async def get_ticket_by_channel(channel_id: int) -> dict[str, Any] | None:
     async with aiosqlite.connect(DATABASE_PATH) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
-            "SELECT * FROM tickets WHERE channel_id = ? AND closed_at IS NULL",
+            "SELECT * FROM tickets WHERE channel_id = ? AND closed_at IS NULL AND deleted_at IS NULL",
             (channel_id,),
         )
         row = await cur.fetchone()
@@ -860,8 +935,12 @@ async def close_ticket_record(channel_id: int, transcript_sent: int) -> None:
 
 
 async def delete_ticket_by_channel(channel_id: int) -> None:
+    now = _utc_now()
     async with aiosqlite.connect(DATABASE_PATH) as db:
-        await db.execute("DELETE FROM tickets WHERE channel_id = ?", (channel_id,))
+        await db.execute(
+            "UPDATE tickets SET deleted_at = ? WHERE channel_id = ?",
+            (now, channel_id),
+        )
         await db.commit()
 
 
@@ -1116,7 +1195,7 @@ async def add_warn(user_id: int, moderator_id: int, reason: str) -> int:
 async def count_warns(user_id: int) -> int:
     async with aiosqlite.connect(DATABASE_PATH) as db:
         cur = await db.execute(
-            "SELECT COUNT(*) FROM warns WHERE user_id = ?", (user_id,)
+            "SELECT COUNT(*) FROM warns WHERE user_id = ? AND deleted_at IS NULL", (user_id,)
         )
         row = await cur.fetchone()
         return int(row[0]) if row else 0
@@ -1126,7 +1205,7 @@ async def list_warns(user_id: int) -> list[dict[str, Any]]:
     async with aiosqlite.connect(DATABASE_PATH) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
-            "SELECT * FROM warns WHERE user_id = ? ORDER BY warn_id ASC",
+            "SELECT * FROM warns WHERE user_id = ? AND deleted_at IS NULL ORDER BY warn_id ASC",
             (user_id,),
         )
         rows = await cur.fetchall()
@@ -1134,15 +1213,23 @@ async def list_warns(user_id: int) -> list[dict[str, Any]]:
 
 
 async def delete_warn(warn_id: int) -> bool:
+    now = _utc_now()
     async with aiosqlite.connect(DATABASE_PATH) as db:
-        cur = await db.execute("DELETE FROM warns WHERE warn_id = ?", (warn_id,))
+        cur = await db.execute(
+            "UPDATE warns SET deleted_at = ? WHERE warn_id = ? AND deleted_at IS NULL",
+            (now, warn_id),
+        )
         await db.commit()
         return cur.rowcount > 0
 
 
 async def clear_warns_user(user_id: int) -> int:
+    now = _utc_now()
     async with aiosqlite.connect(DATABASE_PATH) as db:
-        cur = await db.execute("DELETE FROM warns WHERE user_id = ?", (user_id,))
+        cur = await db.execute(
+            "UPDATE warns SET deleted_at = ? WHERE user_id = ? AND deleted_at IS NULL",
+            (now, user_id),
+        )
         await db.commit()
         return cur.rowcount
 
@@ -1150,7 +1237,10 @@ async def clear_warns_user(user_id: int) -> int:
 async def get_warn(warn_id: int) -> dict[str, Any] | None:
     async with aiosqlite.connect(DATABASE_PATH) as db:
         db.row_factory = aiosqlite.Row
-        cur = await db.execute("SELECT * FROM warns WHERE warn_id = ?", (warn_id,))
+        cur = await db.execute(
+            "SELECT * FROM warns WHERE warn_id = ? AND deleted_at IS NULL",
+            (warn_id,),
+        )
         row = await cur.fetchone()
         return dict(row) if row else None
 
@@ -1227,15 +1317,56 @@ async def loyalty_top(limit: int = 10) -> list[dict[str, Any]]:
 # --- TOS ---
 
 
-async def log_tos_agreement(user_id: int) -> None:
-    now = _utc_now()
+async def get_current_tos_version() -> int:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cur = await db.execute("SELECT current_version FROM tos_meta WHERE id = 1")
+        row = await cur.fetchone()
+        return int(row[0]) if row else 1
+
+
+async def set_current_tos_version(version: int) -> None:
     async with aiosqlite.connect(DATABASE_PATH) as db:
         await db.execute(
             """
-            INSERT INTO tos_agreements (user_id, agreed_at) VALUES (?, ?)
-            ON CONFLICT(user_id) DO UPDATE SET agreed_at = excluded.agreed_at
+            INSERT INTO tos_meta (id, current_version) VALUES (1, ?)
+            ON CONFLICT(id) DO UPDATE SET current_version = excluded.current_version
             """,
-            (user_id, now),
+            (int(version),),
+        )
+        await db.commit()
+
+
+async def get_user_tos_version(user_id: int) -> int | None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cur = await db.execute(
+            "SELECT tos_version FROM tos_agreements WHERE user_id = ?",
+            (user_id,),
+        )
+        row = await cur.fetchone()
+        if not row:
+            return None
+        return int(row[0])
+
+
+async def has_current_tos_agreement(user_id: int) -> bool:
+    cur_ver = await get_current_tos_version()
+    user_ver = await get_user_tos_version(user_id)
+    return user_ver == cur_ver
+
+
+async def log_tos_agreement(user_id: int, tos_version: int | None = None) -> None:
+    now = _utc_now()
+    if tos_version is None:
+        tos_version = await get_current_tos_version()
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """
+            INSERT INTO tos_agreements (user_id, agreed_at, tos_version) VALUES (?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                agreed_at = excluded.agreed_at,
+                tos_version = excluded.tos_version
+            """,
+            (user_id, now, int(tos_version)),
         )
         await db.commit()
 

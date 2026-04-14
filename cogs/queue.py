@@ -264,6 +264,11 @@ async def register_order_in_ticket_channel(
     valid_cats = await ticket_category_ids(guild.id)
     if not valid_cats or channel.category_id not in valid_cats:
         return None, "Pick a channel under your configured **ticket** categories."
+    cap = await db.get_guild_setting(guild.id, gk.QUEUE_CAPACITY_KEY)
+    if cap is not None:
+        active = await db.count_active_queue_orders(guild.id)
+        if active >= int(cap):
+            return None, f"Queue capacity reached (**{active}/{int(cap)}**). Complete existing orders first."
 
     now = datetime.now(timezone.utc)
     mm = now.month
@@ -290,6 +295,7 @@ async def register_order_in_ticket_channel(
     )
 
     await db.update_ticket_order(channel.id, order_id, order_number)
+    queue_position = await db.count_active_queue_orders(guild.id)
 
     noted_cid = await db.get_guild_setting(guild.id, gk.NOTED_CATEGORY)
     noted_cat = guild.get_channel(int(noted_cid)) if noted_cid else None
@@ -377,7 +383,7 @@ async def register_order_in_ticket_channel(
     )
     emb_ticket = discord.Embed(
         title=noted_title[:256],
-        description=f"{noted_buyer}\n\n{noted_inst}",
+        description=f"{noted_buyer}\n\n**Queue position:** #{queue_position}\n\n{noted_inst}",
         color=PRIMARY,
     )
     try:
@@ -639,6 +645,32 @@ class QueueCog(commands.Cog, name="QueueCog"):
             return
         await interaction.followup.send(
             embed=success_embed("Queue", f"Order `{oid}` registered."), ephemeral=True
+        )
+
+    @app_commands.command(
+        name="setqueuecapacity",
+        description="Set max active queue slots (staff, 0 to clear limit)",
+    )
+    @app_commands.describe(limit="Maximum active orders in Noted/Processing")
+    @is_staff()
+    async def setqueuecapacity_cmd(
+        self,
+        interaction: discord.Interaction,
+        limit: app_commands.Range[int, 0, 500],
+    ) -> None:
+        if not interaction.guild:
+            return
+        if limit == 0:
+            await db.delete_guild_settings_keys(interaction.guild.id, [gk.QUEUE_CAPACITY_KEY])
+            await interaction.response.send_message(
+                embed=success_embed("Queue capacity", "Queue capacity limit cleared."),
+                ephemeral=True,
+            )
+            return
+        await db.set_guild_setting(interaction.guild.id, gk.QUEUE_CAPACITY_KEY, int(limit))
+        await interaction.response.send_message(
+            embed=success_embed("Queue capacity", f"Set active queue limit to **{limit}**."),
+            ephemeral=True,
         )
 
     @app_commands.command(name="settemplate", description="Set a message template override (staff)")

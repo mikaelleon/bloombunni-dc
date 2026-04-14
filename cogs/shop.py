@@ -230,6 +230,39 @@ class ShopCog(commands.Cog, name="ShopCog"):
             ephemeral=True,
         )
 
+    @app_commands.command(
+        name="tosversion",
+        description="View or set current TOS version (staff)",
+    )
+    @app_commands.describe(new_version="Optional: set a new TOS version number")
+    @is_staff()
+    async def tosversion_cmd(
+        self,
+        interaction: discord.Interaction,
+        new_version: int | None = None,
+    ) -> None:
+        if new_version is None:
+            cur = await db.get_current_tos_version()
+            await interaction.response.send_message(
+                embed=info_embed("TOS version", f"Current version: **v{cur}**"),
+                ephemeral=True,
+            )
+            return
+        if new_version < 1:
+            await interaction.response.send_message(
+                embed=user_hint("Invalid version", "Version must be 1 or greater."),
+                ephemeral=True,
+            )
+            return
+        await db.set_current_tos_version(new_version)
+        await interaction.response.send_message(
+            embed=success_embed(
+                "TOS version updated",
+                f"Set current TOS version to **v{new_version}**. Users on older agreements must re-agree.",
+            ),
+            ephemeral=True,
+        )
+
 
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(ShopCog(bot))
