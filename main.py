@@ -231,6 +231,22 @@ async def _send_startup_health_report_once() -> None:
         await owner.send(embed=emb)
     except discord.HTTPException:
         log.warning("Could not DM startup health report to owner id=%s", owner.id)
+        # Fallback: try a channel named #bot-logs in connected guilds.
+        for g in bot.guilds:
+            ch = discord.utils.get(g.text_channels, name="bot-logs")
+            if not isinstance(ch, discord.TextChannel):
+                continue
+            perms = ch.permissions_for(g.me)
+            if not perms.send_messages:
+                continue
+            try:
+                await ch.send(
+                    content="Startup health report (owner DM failed):",
+                    embed=emb,
+                )
+                break
+            except discord.HTTPException:
+                continue
 
 
 async def _send_error_alert(interaction: discord.Interaction, error: Exception) -> None:

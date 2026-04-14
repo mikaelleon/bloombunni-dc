@@ -26,6 +26,68 @@ TICKET_FLOW: list[tuple[str, str, list[discord.ChannelType]]] = [
 ]
 
 
+async def _config_check_summary(guild: discord.Guild) -> str:
+    rows = await db.list_guild_settings(guild.id)
+    str_rows = await db.list_guild_string_settings(guild.id)
+    ok = 0
+    warn = 0
+    err = 0
+
+    def _role_exists(key: str) -> bool:
+        rid = rows.get(key)
+        return bool(rid and guild.get_role(int(rid)))
+
+    def _channel_exists(key: str) -> bool:
+        cid = rows.get(key)
+        return bool(cid and guild.get_channel(int(cid)))
+
+    payment_values = [str_rows.get(k, "").strip() for k in gk.PAYMENT_ALL_KEYS]
+    if _channel_exists(gk.PAYMENT_CHANNEL):
+        if any(payment_values):
+            ok += 1
+        else:
+            err += 1
+    else:
+        warn += 1
+
+    if await db.shop_is_open_db():
+        if _role_exists(gk.TOS_AGREED_ROLE):
+            ok += 1
+        else:
+            err += 1
+    else:
+        ok += 1
+
+    btns = await db.list_ticket_buttons(guild.id)
+    if btns:
+        if _channel_exists(gk.TICKET_CATEGORY):
+            ok += 1
+        else:
+            err += 1
+    else:
+        warn += 1
+
+    wt = rows.get(gk.WARN_THRESHOLD_KEY)
+    if wt is not None:
+        if _channel_exists(gk.WARN_LOG_CHANNEL):
+            ok += 1
+        else:
+            err += 1
+    else:
+        warn += 1
+
+    if _channel_exists(gk.TOS_CHANNEL):
+        panel = await db.get_persist_panel("tos")
+        if panel:
+            ok += 1
+        else:
+            warn += 1
+    else:
+        warn += 1
+
+    return f"Config check summary: ✅ {ok} | ⚠️ {warn} | ❌ {err}\nRun **`/config check`** for full details."
+
+
 class WizardMainView(discord.ui.View):
     def __init__(self, cog: SetupWizardCog) -> None:
         super().__init__(timeout=600.0)
@@ -122,10 +184,11 @@ class TicketStepView(discord.ui.View):
                     await db.set_guild_setting(interaction.guild.id, k, vid)
                 await db.delete_wizard_session(interaction.guild.id, interaction.user.id)
                 summary = "\n".join(f"• `{k}` → <#{vid}>" for k, vid in self.acc.items())
+                health = await _config_check_summary(interaction.guild)
                 await interaction.response.edit_message(
                     embed=success_embed(
                         "Tickets & Panels saved",
-                        summary[:3800] + "\n\nUse **`/ticketpanel`** to post the panel.",
+                        summary[:3400] + "\n\nUse **`/ticketpanel`** to post panel.\n\n" + health,
                     ),
                     view=WizardMainView(self.cog),
                 )
@@ -188,8 +251,12 @@ class QueueStepView(discord.ui.View):
                     for k, vid in acc.items():
                         await db.set_guild_setting(interaction.guild.id, k, vid)
                 await db.delete_wizard_session(interaction.guild.id, interaction.user.id)
+                health = await _config_check_summary(interaction.guild)
                 await interaction.response.edit_message(
-                    embed=success_embed("Queue saved", "Queue + order notifications stored."),
+                    embed=success_embed(
+                        "Queue saved",
+                        "Queue + order notifications stored.\n\n" + health,
+                    ),
                     view=WizardMainView(self.cog),
                 )
 
@@ -259,10 +326,11 @@ class ShopStepView(discord.ui.View):
                     if isinstance(v, int):
                         await db.set_guild_setting(interaction.guild.id, k, v)
             await db.delete_wizard_session(interaction.guild.id, interaction.user.id)
+            health = await _config_check_summary(interaction.guild)
             await interaction.response.edit_message(
                 embed=success_embed(
                     "Shop & TOS saved",
-                    "Run **`/deploy tos`** and manage shop open/closed with **`/shop`** as needed.",
+                    "Run **`/deploy tos`** and manage shop with **`/shop`**.\n\n" + health,
                 ),
                 view=WizardMainView(self.cog),
             )
@@ -290,10 +358,11 @@ class PaymentChView(discord.ui.View):
                 return
             cid = int(next(iter(raw.keys())))
             await db.set_guild_setting(interaction.guild.id, gk.PAYMENT_CHANNEL, cid)
+            health = await _config_check_summary(interaction.guild)
             await interaction.response.edit_message(
                 embed=success_embed(
                     "Payment channel saved",
-                    f"Panel channel: <#{cid}>. Configure GCash/PayPal/Ko-fi text & URLs, then run **`/deploy payment`**.",
+                    f"Panel channel: <#{cid}>. Configure payment fields, then run **`/deploy payment`**.\n\n{health}",
                 ),
                 view=WizardMainView(self.cog),
             )
@@ -375,8 +444,12 @@ class RolesStepView(discord.ui.View):
                         for k, vid in self.acc.items():
                             await db.set_guild_setting(interaction.guild.id, k, vid)
                     await db.delete_wizard_session(interaction.guild.id, interaction.user.id)
+                    health = await _config_check_summary(interaction.guild)
                     await interaction.response.edit_message(
-                        embed=success_embed("Channels & roles saved", "Configuration stored."),
+                        embed=success_embed(
+                            "Channels & roles saved",
+                            "Configuration stored.\n\n" + health,
+                        ),
                         view=WizardMainView(self.cog),
                     )
 

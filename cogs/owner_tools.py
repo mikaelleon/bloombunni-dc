@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from pathlib import Path
 
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 import config
+import database as db
 from utils.checks import is_guild_owner
 from utils.embeds import success_embed, user_hint, user_warn
 from utils.logging_setup import get_logger
@@ -25,6 +27,49 @@ class OwnerToolsCog(commands.Cog, name="OwnerToolsCog"):
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
+        self.db_backup_scheduler.start()
+
+    def cog_unload(self) -> None:
+        self.db_backup_scheduler.cancel()
+
+    async def _send_backup_file(self, user: discord.abc.User, *, scheduled: bool = False) -> str | None:
+        db_path = Path(config.DATABASE_PATH)
+        if not db_path.exists():
+            return f"Database file not found: {db_path}"
+        max_bytes = 25 * 1024 * 1024
+        size = db_path.stat().st_size
+        if size > max_bytes:
+            return f"Database too large ({size / (1024 * 1024):.2f}MB > 25MB Discord upload limit)."
+        try:
+            await user.send(
+                content="Mika Shop scheduled database backup." if scheduled else "Mika Shop database backup.",
+                file=discord.File(str(db_path), filename=db_path.name),
+            )
+            return None
+        except discord.HTTPException:
+            return "Could not DM backup file."
+
+    @tasks.loop(minutes=1)
+    async def db_backup_scheduler(self) -> None:
+        now = datetime.now(timezone.utc)
+        due = await db.list_due_db_backup_schedules(now.hour, now.minute)
+        for row in due:
+            uid = int(row["owner_user_id"])
+            try:
+                user = self.bot.get_user(uid) or await self.bot.fetch_user(uid)
+                if user is None:
+                    continue
+                err = await self._send_backup_file(user, scheduled=True)
+                if err is None:
+                    await db.mark_db_backup_schedule_sent(uid)
+                else:
+                    log.warning("scheduled_backup_failed owner_id=%s error=%s", uid, err)
+            except Exception as e:
+                log.warning("scheduled_backup_failed owner_id=%s error=%s", uid, e)
+
+    @db_backup_scheduler.before_loop
+    async def before_db_backup_scheduler(self) -> None:
+        await self.bot.wait_until_ready()
 
     @app_commands.command(
         name="purge_bot_dms",
@@ -127,38 +172,68 @@ class OwnerToolsCog(commands.Cog, name="OwnerToolsCog"):
         )
 
     @db_group.command(name="backup", description="DM yourself a SQLite backup file")
+    @app_commands.describe(
+        schedule="Choose `daily` to schedule automatic daily DM backup",
+        time_utc="For daily schedule, time in HH:MM (UTC), e.g. 01:30",
+    )
+    @app_commands.choices(
+        schedule=[
+            app_commands.Choice(name="once", value="once"),
+            app_commands.Choice(name="daily", value="daily"),
+            app_commands.Choice(name="off", value="off"),
+        ]
+    )
     @is_guild_owner()
-    async def db_backup(self, interaction: discord.Interaction) -> None:
+    async def db_backup(
+        self,
+        interaction: discord.Interaction,
+        schedule: str = "once",
+        time_utc: str | None = None,
+    ) -> None:
         await interaction.response.defer(ephemeral=True)
-        db_path = Path(config.DATABASE_PATH)
-        if not db_path.exists():
+        if schedule == "off":
+            await db.disable_db_backup_schedule(interaction.user.id)
             await interaction.followup.send(
-                embed=user_warn("Backup failed", f"Database file not found: `{db_path}`"),
+                embed=success_embed("Schedule disabled", "Daily `/db backup` schedule turned off."),
                 ephemeral=True,
             )
             return
-        max_bytes = 25 * 1024 * 1024
-        size = db_path.stat().st_size
-        if size > max_bytes:
+
+        if schedule == "daily":
+            if not time_utc:
+                await interaction.followup.send(
+                    embed=user_hint("Missing time", "Provide `time_utc` like `01:30` when `schedule=daily`."),
+                    ephemeral=True,
+                )
+                return
+            try:
+                hh, mm = time_utc.split(":", 1)
+                hour = int(hh)
+                minute = int(mm)
+                if not (0 <= hour <= 23 and 0 <= minute <= 59):
+                    raise ValueError("range")
+            except Exception:
+                await interaction.followup.send(
+                    embed=user_hint("Invalid time", "Use 24h UTC format `HH:MM` (example: `01:30`)."),
+                    ephemeral=True,
+                )
+                return
+            await db.upsert_db_backup_schedule(interaction.user.id, hour, minute, True)
             await interaction.followup.send(
-                embed=user_warn(
-                    "Backup too large",
-                    f"Database is {size / (1024 * 1024):.2f}MB (>25MB Discord upload limit). Use host filesystem backup.",
+                embed=success_embed(
+                    "Daily schedule saved",
+                    f"Daily DB backup scheduled at **{hour:02d}:{minute:02d} UTC**.\nRun `/db backup schedule:once` anytime for immediate backup.",
                 ),
                 ephemeral=True,
             )
             return
-        try:
-            dm = await interaction.user.create_dm()
-            await dm.send(
-                content="Mika Shop database backup.",
-                file=discord.File(str(db_path), filename=db_path.name),
-            )
-        except discord.HTTPException:
+
+        err = await self._send_backup_file(interaction.user, scheduled=False)
+        if err:
             await interaction.followup.send(
                 embed=user_warn(
-                    "DM blocked",
-                    "Could not DM backup file. Enable DMs and try again.",
+                    "Backup failed",
+                    err + " Enable DMs and try again.",
                 ),
                 ephemeral=True,
             )

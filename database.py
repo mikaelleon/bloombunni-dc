@@ -201,6 +201,20 @@ async def _ensure_schema_migrations_table(db: aiosqlite.Connection) -> None:
     )
 
 
+async def _ensure_db_backup_schedule_table(db: aiosqlite.Connection) -> None:
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS db_backup_schedule (
+            owner_user_id INTEGER PRIMARY KEY,
+            hour_utc INTEGER NOT NULL,
+            minute_utc INTEGER NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            last_sent_date TEXT
+        )
+        """
+    )
+
+
 async def _migration_applied(db: aiosqlite.Connection, version: int) -> bool:
     cur = await db.execute(
         "SELECT 1 FROM schema_migrations WHERE version = ? LIMIT 1",
@@ -418,6 +432,9 @@ async def init_db() -> None:
         )
         await _run_migration(
             db, 5, "ensure_quote_and_wizard_schema", _ensure_quote_and_wizard_schema
+        )
+        await _run_migration(
+            db, 6, "ensure_db_backup_schedule_table", _ensure_db_backup_schedule_table
         )
         await db.commit()
 
@@ -1686,3 +1703,61 @@ def load_default_templates() -> dict[str, str]:
     if not TEMPLATES_FILE.exists():
         return {}
     return json.loads(TEMPLATES_FILE.read_text(encoding="utf-8"))
+
+
+# --- DB backup schedules ---
+
+
+async def upsert_db_backup_schedule(
+    owner_user_id: int, hour_utc: int, minute_utc: int, enabled: bool
+) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """
+            INSERT INTO db_backup_schedule (owner_user_id, hour_utc, minute_utc, enabled, last_sent_date)
+            VALUES (?, ?, ?, ?, NULL)
+            ON CONFLICT(owner_user_id) DO UPDATE SET
+                hour_utc = excluded.hour_utc,
+                minute_utc = excluded.minute_utc,
+                enabled = excluded.enabled
+            """,
+            (owner_user_id, hour_utc, minute_utc, 1 if enabled else 0),
+        )
+        await db.commit()
+
+
+async def disable_db_backup_schedule(owner_user_id: int) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            "UPDATE db_backup_schedule SET enabled = 0 WHERE owner_user_id = ?",
+            (owner_user_id,),
+        )
+        await db.commit()
+
+
+async def list_due_db_backup_schedules(hour_utc: int, minute_utc: int) -> list[dict[str, Any]]:
+    today = datetime.now(timezone.utc).date().isoformat()
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            """
+            SELECT * FROM db_backup_schedule
+            WHERE enabled = 1
+              AND hour_utc = ?
+              AND minute_utc = ?
+              AND (last_sent_date IS NULL OR last_sent_date != ?)
+            """,
+            (hour_utc, minute_utc, today),
+        )
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def mark_db_backup_schedule_sent(owner_user_id: int) -> None:
+    today = datetime.now(timezone.utc).date().isoformat()
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            "UPDATE db_backup_schedule SET last_sent_date = ? WHERE owner_user_id = ?",
+            (today, owner_user_id),
+        )
+        await db.commit()
