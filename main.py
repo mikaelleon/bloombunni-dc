@@ -66,6 +66,7 @@ class MikaBot(commands.Bot):
         exts = [
             "cogs.owner_tools",
             "cogs.embed_builder",
+            "cogs.button_builder",
             "cogs.config_cmd",
             "cogs.setup_wizard",
             "cogs.quotes",

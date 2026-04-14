@@ -412,6 +412,51 @@ async def _ensure_embed_builder_schema(db: aiosqlite.Connection) -> None:
     )
 
 
+async def _ensure_button_builder_schema(db: aiosqlite.Connection) -> None:
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS button_builder_meta (
+            guild_id INTEGER PRIMARY KEY,
+            last_assigned_id INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS button_builder_buttons (
+            guild_id INTEGER NOT NULL,
+            button_id TEXT NOT NULL,
+            created_by INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            last_edited_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'draft',
+            label TEXT NOT NULL DEFAULT 'Button',
+            emoji_str TEXT,
+            style TEXT NOT NULL DEFAULT 'secondary',
+            action_type TEXT NOT NULL DEFAULT 'toggle_role',
+            role_id INTEGER,
+            internal_label TEXT,
+            internal_note TEXT,
+            responses_json TEXT,
+            PRIMARY KEY (guild_id, button_id)
+        )
+        """
+    )
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS button_builder_audit (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER NOT NULL,
+            actor_user_id INTEGER NOT NULL,
+            action TEXT NOT NULL,
+            button_id TEXT NOT NULL,
+            channel_id INTEGER,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+
+
 async def _migration_applied(db: aiosqlite.Connection, version: int) -> bool:
     cur = await db.execute(
         "SELECT 1 FROM schema_migrations WHERE version = ? LIMIT 1",
@@ -641,6 +686,7 @@ async def init_db() -> None:
         await _run_migration(db, 12, "ensure_sticky_p3_schema", _ensure_sticky_p3_schema)
         await _run_migration(db, 13, "ensure_slow_query_schema", _ensure_slow_query_schema)
         await _run_migration(db, 14, "ensure_embed_builder_schema", _ensure_embed_builder_schema)
+        await _run_migration(db, 15, "ensure_button_builder_schema", _ensure_button_builder_schema)
         await db.commit()
 
 
@@ -2436,5 +2482,144 @@ async def log_embed_builder_action(
             VALUES (?, ?, ?, ?, ?, ?)
             """,
             (guild_id, actor_user_id, action[:32], embed_id.upper(), channel_id, _utc_now()),
+        )
+        await db.commit()
+
+
+# --- Button builder (BTN-XXX) ---
+
+
+async def create_builder_button(guild_id: int, created_by: int) -> dict[str, Any]:
+    now = _utc_now()
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            "INSERT INTO button_builder_meta (guild_id, last_assigned_id) VALUES (?, 0) ON CONFLICT(guild_id) DO NOTHING",
+            (guild_id,),
+        )
+        cur = await db.execute(
+            "SELECT last_assigned_id FROM button_builder_meta WHERE guild_id = ?",
+            (guild_id,),
+        )
+        row = await cur.fetchone()
+        nxt = int(row[0]) + 1 if row else 1
+        button_id = f"BTN-{nxt:03d}"
+        await db.execute(
+            "UPDATE button_builder_meta SET last_assigned_id = ? WHERE guild_id = ?",
+            (nxt, guild_id),
+        )
+        await db.execute(
+            """
+            INSERT INTO button_builder_buttons (
+                guild_id, button_id, created_by, created_at, last_edited_at, status,
+                label, style, action_type
+            ) VALUES (?, ?, ?, ?, ?, 'draft', 'Button', 'secondary', 'toggle_role')
+            """,
+            (guild_id, button_id, created_by, now, now),
+        )
+        await db.commit()
+    return await get_builder_button(guild_id, button_id) or {}
+
+
+async def get_builder_button(guild_id: int, button_id: str) -> dict[str, Any] | None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM button_builder_buttons WHERE guild_id = ? AND button_id = ?",
+            (guild_id, button_id.upper()),
+        )
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+
+async def list_builder_buttons(guild_id: int) -> list[dict[str, Any]]:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM button_builder_buttons WHERE guild_id = ? ORDER BY button_id ASC",
+            (guild_id,),
+        )
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def patch_builder_button(guild_id: int, button_id: str, updates: dict[str, Any]) -> bool:
+    row = await get_builder_button(guild_id, button_id)
+    if not row:
+        return False
+    allowed = {
+        "label",
+        "emoji_str",
+        "style",
+        "action_type",
+        "role_id",
+        "internal_label",
+        "internal_note",
+        "responses_json",
+        "status",
+    }
+    fields = {k: v for k, v in updates.items() if k in allowed}
+    if not fields:
+        return True
+    fields["last_edited_at"] = _utc_now()
+    set_sql = ", ".join(f"{k} = ?" for k in fields.keys())
+    vals = list(fields.values()) + [guild_id, button_id.upper()]
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            f"UPDATE button_builder_buttons SET {set_sql} WHERE guild_id = ? AND button_id = ?",
+            vals,
+        )
+        await db.commit()
+    return True
+
+
+async def delete_builder_button(guild_id: int, button_id: str) -> bool:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cur = await db.execute(
+            "DELETE FROM button_builder_buttons WHERE guild_id = ? AND button_id = ?",
+            (guild_id, button_id.upper()),
+        )
+        await db.commit()
+        return int(cur.rowcount or 0) > 0
+
+
+async def clone_builder_button(guild_id: int, button_id: str, created_by: int) -> dict[str, Any] | None:
+    src = await get_builder_button(guild_id, button_id)
+    if not src:
+        return None
+    new_row = await create_builder_button(guild_id, created_by)
+    if not new_row:
+        return None
+    await patch_builder_button(
+        guild_id,
+        str(new_row["button_id"]),
+        {
+            "label": src.get("label"),
+            "emoji_str": src.get("emoji_str"),
+            "style": src.get("style") or "secondary",
+            "action_type": src.get("action_type") or "toggle_role",
+            "role_id": src.get("role_id"),
+            "internal_label": src.get("internal_label"),
+            "internal_note": src.get("internal_note"),
+            "responses_json": src.get("responses_json"),
+            "status": "draft",
+        },
+    )
+    return await get_builder_button(guild_id, str(new_row["button_id"]))
+
+
+async def log_button_builder_action(
+    guild_id: int,
+    actor_user_id: int,
+    action: str,
+    bid: str,
+    channel_id: int | None = None,
+) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """
+            INSERT INTO button_builder_audit (guild_id, actor_user_id, action, button_id, channel_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (guild_id, actor_user_id, action[:32], bid.upper(), channel_id, _utc_now()),
         )
         await db.commit()
