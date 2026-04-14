@@ -7,22 +7,36 @@ A Discord bot for running a **small art commission shop** in your server: agree 
 ## Table of contents
 
 1. [Overview](#overview)
-2. [What the bot can do](#what-the-bot-can-do)
-3. [What the bot does not do (yet)](#what-the-bot-does-not-do-yet)
-4. [How the pieces fit together](#how-the-pieces-fit-together)
-5. [Setup (step by step)](#setup-step-by-step)
-6. [Discord settings your server needs](#discord-settings-your-server-needs)
-7. [Core features and sub-features](#core-features-and-sub-features)
-8. [Commands by who can use them](#commands-by-who-can-use-them)
-9. [Hosting the bot online](#hosting-the-bot-online)
-10. [Files and folders (optional)](#files-and-folders-optional)
-11. [More documentation](#more-documentation)
+2. [Current progress](#current-progress)
+3. [What the bot can do](#what-the-bot-can-do)
+4. [What the bot does not do (yet)](#what-the-bot-does-not-do-yet)
+5. [How the pieces fit together](#how-the-pieces-fit-together)
+6. [Setup (step by step)](#setup-step-by-step)
+7. [Discord settings your server needs](#discord-settings-your-server-needs)
+8. [Core features and sub-features](#core-features-and-sub-features)
+9. [Commands by who can use them](#commands-by-who-can-use-them)
+10. [Hosting the bot online](#hosting-the-bot-online)
+11. [Files and folders (optional)](#files-and-folders-optional)
+12. [More documentation](#more-documentation)
 
 ---
 
 ## Overview
 
 **Mika Shop** helps you run commissions in Discord: customers use **buttons** and **slash commands** (`/` commands) to open tickets, staff register orders with **`/queue`** or **`/payment confirm`**, and the bot keeps **HTML transcripts** (with optional ticket metadata) when a ticket closes. **Only the bot token** is read from your **`.env`** file. **Channels, roles, and payment text (GCash, PayPal, Ko-fi, QR image links)** are set **per server** with **`/config`** (and the **`/setup`** wizard) and stored in the database—no payment info in `.env`.
+
+---
+
+## Current progress
+
+Overall project progress: **80%**
+
+- [x] Core ticketing flow (panel, open, close, transcript) - **100%**
+- [x] Queue and order management pipeline - **100%**
+- [x] Payment info panels and payment-confirm flow - **100%**
+- [x] Quote calculator and ticket quote integration - **100%**
+- [x] Staff moderation and utility commands (warn, sticky, drop, vouch) - **100%**
+- [ ] Remaining polish and optional enhancements from backlog - **20%**
 
 ---
 
