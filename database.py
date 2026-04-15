@@ -519,6 +519,19 @@ async def _ensure_autoresponder_schema(db: aiosqlite.Connection) -> None:
     )
 
 
+async def _ensure_autoresponder_trigger_columns(db: aiosqlite.Connection) -> None:
+    cur = await db.execute("PRAGMA table_info(ar_builder_entries)")
+    cols = {row[1] for row in await cur.fetchall()}
+    if "trigger_role_id" not in cols:
+        await db.execute("ALTER TABLE ar_builder_entries ADD COLUMN trigger_role_id INTEGER")
+    if "trigger_channel_id" not in cols:
+        await db.execute("ALTER TABLE ar_builder_entries ADD COLUMN trigger_channel_id INTEGER")
+    if "trigger_message_id" not in cols:
+        await db.execute("ALTER TABLE ar_builder_entries ADD COLUMN trigger_message_id INTEGER")
+    if "trigger_emoji" not in cols:
+        await db.execute("ALTER TABLE ar_builder_entries ADD COLUMN trigger_emoji TEXT")
+
+
 async def _migration_applied(db: aiosqlite.Connection, version: int) -> bool:
     cur = await db.execute(
         "SELECT 1 FROM schema_migrations WHERE version = ? LIMIT 1",
@@ -750,6 +763,7 @@ async def init_db() -> None:
         await _run_migration(db, 14, "ensure_embed_builder_schema", _ensure_embed_builder_schema)
         await _run_migration(db, 15, "ensure_button_builder_schema", _ensure_button_builder_schema)
         await _run_migration(db, 16, "ensure_autoresponder_schema", _ensure_autoresponder_schema)
+        await _run_migration(db, 17, "ensure_autoresponder_trigger_columns", _ensure_autoresponder_trigger_columns)
         await db.commit()
 
 
@@ -2771,6 +2785,10 @@ async def patch_autoresponder(guild_id: int, ar_id: str, updates: dict[str, Any]
         "denied_role_id",
         "required_channel_id",
         "denied_channel_id",
+        "trigger_role_id",
+        "trigger_channel_id",
+        "trigger_message_id",
+        "trigger_emoji",
         "internal_label",
         "internal_note",
     }
@@ -2855,3 +2873,63 @@ async def log_autoresponder_action(
             (guild_id, actor_user_id, action[:32], ar_id.upper(), channel_id, _utc_now()),
         )
         await db.commit()
+
+
+async def search_autoresponders(
+    guild_id: int,
+    *,
+    query: str | None = None,
+    status: str | None = None,
+    creator_id: int | None = None,
+) -> list[dict[str, Any]]:
+    base = "SELECT * FROM ar_builder_entries WHERE guild_id = ?"
+    params: list[Any] = [guild_id]
+    if status:
+        base += " AND status = ?"
+        params.append(status)
+    if creator_id:
+        base += " AND created_by = ?"
+        params.append(int(creator_id))
+    if query and query.strip():
+        q = f"%{query.strip()}%"
+        base += " AND (ar_id LIKE ? OR triggers_json LIKE ? OR COALESCE(internal_label, '') LIKE ?)"
+        params.extend([q, q, q])
+    base += " ORDER BY ar_id ASC"
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(base, tuple(params))
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def get_autoresponder_stats(guild_id: int, ar_id: str) -> dict[str, Any] | None:
+    row = await get_autoresponder(guild_id, ar_id)
+    if not row:
+        return None
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cur = await db.execute(
+            """
+            SELECT COUNT(*) FROM ar_builder_user_cooldowns
+            WHERE guild_id = ? AND ar_id = ?
+            """,
+            (guild_id, ar_id.upper()),
+        )
+        unique_users_row = await cur.fetchone()
+        unique_users = int(unique_users_row[0]) if unique_users_row else 0
+        cur2 = await db.execute(
+            """
+            SELECT actor_user_id, created_at FROM ar_builder_audit
+            WHERE guild_id = ? AND ar_id = ? AND action = 'fire'
+            ORDER BY id DESC LIMIT 1
+            """,
+            (guild_id, ar_id.upper()),
+        )
+        last_fire = await cur2.fetchone()
+    return {
+        "ar_id": row["ar_id"],
+        "fire_count": int(row.get("fire_count") or 0),
+        "unique_users": unique_users,
+        "last_fired_at": row.get("last_fired_at"),
+        "last_actor_user_id": int(last_fire[0]) if last_fire else None,
+        "status": row.get("status"),
+    }

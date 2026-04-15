@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import io
+import json
 import re
 from datetime import datetime, timezone
 from typing import Any
@@ -15,7 +17,7 @@ import database as db
 import guild_keys as gk
 from utils.embeds import info_embed, success_embed, user_hint, user_warn
 
-_TRIGGER_TYPES = ("message",)
+_TRIGGER_TYPES = ("message", "member_join", "member_leave", "role_assigned")
 _MATCH_MODES = ("exact", "startswith", "endswith", "includes", "word_boundary")
 _VAR_PATTERN = re.compile(r"\{[a-zA-Z0-9_:+#\.\-\[\]\| ]+\}")
 
@@ -103,10 +105,13 @@ def _resolve_basic_vars(
     guild: discord.Guild,
     member: discord.Member,
     channel: discord.abc.GuildChannel | discord.Thread | None,
-    message: discord.Message,
+    message: discord.Message | None,
 ) -> str:
     out = text
     now = datetime.now(timezone.utc)
+    message_id = str(message.id) if message else ""
+    message_content = message.content if message else ""
+    message_link = message.jump_url if message else ""
     mapping = {
         "{user}": member.mention,
         "{user_mention}": member.mention,
@@ -120,9 +125,9 @@ def _resolve_basic_vars(
         "{server_icon}": guild.icon.url if guild.icon else "",
         "{channel}": channel.mention if channel else "",
         "{channel_name}": channel.name if channel else "",
-        "{message_id}": str(message.id),
-        "{message_content}": message.content,
-        "{message_link}": message.jump_url,
+        "{message_id}": message_id,
+        "{message_content}": message_content,
+        "{message_link}": message_link,
         "{date}": now.strftime("%B %d, %Y %H:%M UTC"),
         "{newline}": "\n",
     }
@@ -169,6 +174,7 @@ def _ar_preview_embed(row: dict[str, Any]) -> discord.Embed:
         f"**type:** {row.get('trigger_type') or 'message'}\n"
         f"**matchmode:** {mode}\n"
         f"**trigger:** `{trigger_show}`{extra}\n"
+        f"**priority:** {int(row.get('priority') or 100)}\n"
         f"**status:** {row.get('status') or 'draft'}\n"
         f"**cooldown:** {int(row.get('cooldown_seconds') or 0)}s"
     )
@@ -179,6 +185,12 @@ def _ar_preview_embed(row: dict[str, Any]) -> discord.Embed:
 
 
 class TriggerModal(discord.ui.Modal, title="Trigger + matchmode"):
+    trigger_type = discord.ui.TextInput(
+        label="Trigger type (message/join/leave/role)",
+        max_length=24,
+        required=True,
+        default="message",
+    )
     trigger_lines = discord.ui.TextInput(
         label="Triggers (one per line)",
         style=discord.TextStyle.paragraph,
@@ -191,29 +203,88 @@ class TriggerModal(discord.ui.Modal, title="Trigger + matchmode"):
         required=True,
         default="exact",
     )
+    priority = discord.ui.TextInput(
+        label="Priority (1 high, 100 default)",
+        max_length=4,
+        required=False,
+        default="100",
+    )
+    trigger_role_id = discord.ui.TextInput(
+        label="Role trigger role_id (optional)",
+        max_length=30,
+        required=False,
+    )
 
     def __init__(self, row: dict[str, Any]) -> None:
         super().__init__(title=f"{row['ar_id']} · trigger"[:45])
         self.row = row
+        self.trigger_type.default = str(row.get("trigger_type") or "message")
         self.trigger_lines.default = str(row.get("triggers_json") or "")
         self.match_mode.default = str(row.get("match_mode") or "exact")
+        self.priority.default = str(int(row.get("priority") or 100))
+        self.trigger_role_id.default = str(row.get("trigger_role_id") or "")
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        mode = str(self.match_mode.value or "").strip().lower()
+        trig_type_raw = str(self.trigger_type.value or "").strip().lower()
+        trig_type = {
+            "message": "message",
+            "join": "member_join",
+            "member_join": "member_join",
+            "leave": "member_leave",
+            "member_leave": "member_leave",
+            "role": "role_assigned",
+            "role_assigned": "role_assigned",
+        }.get(trig_type_raw, "")
+        if trig_type not in _TRIGGER_TYPES:
+            await interaction.response.send_message(
+                embed=user_hint("Invalid trigger type", "Use message / join / leave / role."),
+                ephemeral=True,
+            )
+            return
+        mode_raw = str(self.match_mode.value or "").strip().lower()
+        mode = {
+            "starts": "startswith",
+            "startswith": "startswith",
+            "ends": "endswith",
+            "endswith": "endswith",
+            "word": "word_boundary",
+            "word_boundary": "word_boundary",
+            "includes": "includes",
+            "exact": "exact",
+        }.get(mode_raw, "")
         if mode not in _MATCH_MODES:
             await interaction.response.send_message(
                 embed=user_hint("Invalid matchmode", "Use exact/startswith/endswith/includes/word_boundary."),
                 ephemeral=True,
             )
             return
+        try:
+            priority = int(str(self.priority.value or "100").strip() or "100")
+        except ValueError:
+            await interaction.response.send_message("Priority must be number.", ephemeral=True)
+            return
+        priority = max(1, min(999, priority))
         trs = _normalize_trigger_lines(str(self.trigger_lines.value or ""))
-        if not trs:
+        if trig_type == "message" and not trs:
             await interaction.response.send_message("Add at least one trigger.", ephemeral=True)
             return
+        role_id_val: int | None = None
+        role_raw = str(self.trigger_role_id.value or "").strip()
+        if trig_type == "role_assigned":
+            if not role_raw.isdigit():
+                await interaction.response.send_message("Role trigger requires numeric role_id.", ephemeral=True)
+                return
+            role_id_val = int(role_raw)
         await db.patch_autoresponder(
             int(self.row["guild_id"]),
             str(self.row["ar_id"]),
-            {"match_mode": mode, "triggers_json": "\n".join(trs)},
+            {
+                "trigger_type": trig_type,
+                "match_mode": mode,
+                "triggers_json": "\n".join(trs),
+                "priority": priority,
+                "trigger_role_id": role_id_val,
+            },
         )
         row = await db.get_autoresponder(int(self.row["guild_id"]), str(self.row["ar_id"]))
         if not row:
@@ -714,6 +785,76 @@ class AutoResponderCog(commands.Cog, name="AutoResponderCog"):
         await db.bump_autoresponder_fire_count(guild.id, str(row["ar_id"]), member.id)
         await db.log_autoresponder_action(guild.id, member.id, "fire", str(row["ar_id"]), message.channel.id)
 
+    async def _execute_ar_event(
+        self,
+        *,
+        guild: discord.Guild,
+        member: discord.Member,
+        row: dict[str, Any],
+        channel_id: int | None = None,
+    ) -> None:
+        req_role = row.get("required_role_id")
+        if req_role and all(r.id != int(req_role) for r in member.roles):
+            return
+        deny_role = row.get("denied_role_id")
+        if deny_role and any(r.id == int(deny_role) for r in member.roles):
+            return
+        if channel_id:
+            req_ch = row.get("required_channel_id")
+            if req_ch and int(req_ch) != int(channel_id):
+                return
+            deny_ch = row.get("denied_channel_id")
+            if deny_ch and int(deny_ch) == int(channel_id):
+                return
+
+        cooldown = int(row.get("cooldown_seconds") or 0)
+        if cooldown > 0:
+            last_ts = await db.get_autoresponder_last_fire(guild.id, str(row["ar_id"]), member.id)
+            now_ts = _utc_now_ts()
+            if last_ts and now_ts - last_ts < cooldown:
+                return
+
+        raw = str(row.get("response_text") or "")
+        if not raw.strip():
+            return
+        cleaned, flags = _parse_inline_functions(raw)
+        rendered = _resolve_basic_vars(
+            cleaned,
+            guild=guild,
+            member=member,
+            channel=guild.get_channel(channel_id) if channel_id else None,  # type: ignore[arg-type]
+            message=None,
+        )
+        target: discord.abc.Messageable | None = None
+        if flags.get("dm"):
+            target = member
+        else:
+            ch: discord.abc.GuildChannel | discord.Thread | None = None
+            if channel_id:
+                raw_ch = guild.get_channel(channel_id)
+                if isinstance(raw_ch, (discord.TextChannel, discord.Thread)):
+                    ch = raw_ch
+            if ch is None and isinstance(guild.system_channel, discord.TextChannel):
+                ch = guild.system_channel
+            if ch is None:
+                text_channels = [c for c in guild.text_channels if c.permissions_for(guild.me).send_messages] if guild.me else guild.text_channels
+                ch = text_channels[0] if text_channels else None
+            target = ch
+        if target is None:
+            return
+        try:
+            if flags.get("embed_color"):
+                color = str(flags["embed_color"] or "#5865F2")
+                emb = discord.Embed(description=rendered or None, color=discord.Color.from_str(color))
+                await target.send(embed=emb)
+            else:
+                await target.send(rendered[:2000] or " ")
+        except discord.HTTPException:
+            return
+        await db.bump_autoresponder_fire_count(guild.id, str(row["ar_id"]), member.id)
+        ch_id = channel_id if channel_id else None
+        await db.log_autoresponder_action(guild.id, member.id, "fire", str(row["ar_id"]), ch_id)
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
         if message.author.bot or not message.guild or not isinstance(message.channel, discord.TextChannel):
@@ -739,6 +880,38 @@ class AutoResponderCog(commands.Cog, name="AutoResponderCog"):
         matches.sort(key=lambda x: (int(x[0].get("priority") or 100), -len(x[1])))
         row, trig = matches[0]
         await self._execute_ar(message, row, trig)
+
+    @commands.Cog.listener()
+    async def on_member_join(self, member: discord.Member) -> None:
+        rows = await db.list_active_autoresponders(member.guild.id)
+        targets = [r for r in rows if str(r.get("trigger_type") or "") == "member_join"]
+        targets.sort(key=lambda r: int(r.get("priority") or 100))
+        for row in targets[:5]:
+            await self._execute_ar_event(guild=member.guild, member=member, row=row)
+
+    @commands.Cog.listener()
+    async def on_member_remove(self, member: discord.Member) -> None:
+        rows = await db.list_active_autoresponders(member.guild.id)
+        targets = [r for r in rows if str(r.get("trigger_type") or "") == "member_leave"]
+        targets.sort(key=lambda r: int(r.get("priority") or 100))
+        for row in targets[:5]:
+            await self._execute_ar_event(guild=member.guild, member=member, row=row)
+
+    @commands.Cog.listener()
+    async def on_member_update(self, before: discord.Member, after: discord.Member) -> None:
+        before_ids = {r.id for r in before.roles}
+        added = [r for r in after.roles if r.id not in before_ids]
+        if not added:
+            return
+        rows = await db.list_active_autoresponders(after.guild.id)
+        role_rows = [r for r in rows if str(r.get("trigger_type") or "") == "role_assigned" and r.get("trigger_role_id")]
+        if not role_rows:
+            return
+        added_ids = {r.id for r in added}
+        for row in sorted(role_rows, key=lambda r: int(r.get("priority") or 100)):
+            target_role = int(row.get("trigger_role_id") or 0)
+            if target_role in added_ids:
+                await self._execute_ar_event(guild=after.guild, member=after, row=row)
 
     @ar.command(name="create", description="Create autoresponder draft (builder)")
     async def create_cmd(self, interaction: discord.Interaction) -> None:
@@ -829,6 +1002,175 @@ class AutoResponderCog(commands.Cog, name="AutoResponderCog"):
         if len(rows) > 50:
             lines.append(f"... +{len(rows)-50} more")
         await interaction.response.send_message(embed=info_embed(f"AR list ({len(rows)})", "\n".join(lines)[:4000]), ephemeral=True)
+
+    @ar.command(name="showlist", description="Extended list with details")
+    async def showlist_cmd(self, interaction: discord.Interaction) -> None:
+        if not await self._can_use(interaction):
+            return
+        assert interaction.guild
+        rows = await db.list_autoresponders(interaction.guild.id)
+        if not rows:
+            await interaction.response.send_message("No autoresponders.", ephemeral=True)
+            return
+        lines: list[str] = []
+        for r in rows[:30]:
+            trigger_line = (str(r.get("triggers_json") or "").splitlines() or [""])[0][:32]
+            lines.append(
+                f"`{r['ar_id']}` {r.get('status')} · {r.get('trigger_type')}:{r.get('match_mode')} · "
+                f"prio {int(r.get('priority') or 100)} · fired {int(r.get('fire_count') or 0)} · `{trigger_line}`"
+            )
+        if len(rows) > 30:
+            lines.append(f"... +{len(rows)-30} more")
+        await interaction.response.send_message(
+            embed=info_embed(f"AR showlist ({len(rows)})", "\n".join(lines)[:4000]),
+            ephemeral=True,
+        )
+
+    @ar.command(name="search", description="Search autoresponders")
+    @app_commands.describe(query="Match ID/trigger/label", status="Filter status")
+    @app_commands.choices(
+        status=[
+            app_commands.Choice(name="any", value="any"),
+            app_commands.Choice(name="active", value="active"),
+            app_commands.Choice(name="paused", value="paused"),
+            app_commands.Choice(name="draft", value="draft"),
+        ]
+    )
+    async def search_cmd(
+        self,
+        interaction: discord.Interaction,
+        query: str | None = None,
+        status: str = "any",
+    ) -> None:
+        if not await self._can_use(interaction):
+            return
+        assert interaction.guild
+        status_filter = None if status == "any" else status
+        rows = await db.search_autoresponders(interaction.guild.id, query=query, status=status_filter)
+        if not rows:
+            await interaction.response.send_message("No matches.", ephemeral=True)
+            return
+        lines = [f"`{r['ar_id']}` · {r.get('status')} · {r.get('trigger_type')} · `{(str(r.get('triggers_json') or '').splitlines() or [''])[0][:40]}`" for r in rows[:50]]
+        if len(rows) > 50:
+            lines.append(f"... +{len(rows)-50} more")
+        await interaction.response.send_message(
+            embed=info_embed(f"AR search ({len(rows)})", "\n".join(lines)[:4000]),
+            ephemeral=True,
+        )
+
+    @ar.command(name="stats", description="Show autoresponder stats")
+    @app_commands.describe(id="AR-001")
+    @app_commands.autocomplete(id=_ar_id_autocomplete)
+    async def stats_cmd(self, interaction: discord.Interaction, id: str) -> None:
+        if not await self._can_use(interaction):
+            return
+        assert interaction.guild
+        stats = await db.get_autoresponder_stats(interaction.guild.id, id.upper())
+        if not stats:
+            await interaction.response.send_message("Not found.", ephemeral=True)
+            return
+        body = (
+            f"Status: `{stats['status']}`\n"
+            f"Total fires: **{int(stats['fire_count'])}**\n"
+            f"Unique users hit cooldown cache: **{int(stats['unique_users'])}**\n"
+            f"Last fired at: `{stats['last_fired_at'] or 'never'}`\n"
+            f"Last actor id: `{stats['last_actor_user_id'] or 'n/a'}`"
+        )
+        await interaction.response.send_message(embed=info_embed(f"Stats {id.upper()}", body), ephemeral=True)
+
+    @ar.command(name="export", description="Export autoresponders as JSON")
+    async def export_cmd(self, interaction: discord.Interaction) -> None:
+        if not await self._can_use(interaction):
+            return
+        assert interaction.guild
+        rows = await db.list_autoresponders(interaction.guild.id)
+        payload = {
+            "guild_id": interaction.guild.id,
+            "count": len(rows),
+            "entries": rows,
+        }
+        raw = json.dumps(payload, indent=2, ensure_ascii=False)
+        fp = io.BytesIO(raw.encode("utf-8"))
+        file = discord.File(fp=fp, filename=f"ar-export-{interaction.guild.id}.json")
+        await interaction.response.send_message("AR export generated.", file=file, ephemeral=True)
+
+    @ar.command(name="import", description="Import autoresponders from JSON export")
+    @app_commands.describe(file="JSON file from /ar export", mode="merge keeps existing IDs")
+    @app_commands.choices(
+        mode=[
+            app_commands.Choice(name="merge", value="merge"),
+            app_commands.Choice(name="replace", value="replace"),
+        ]
+    )
+    async def import_cmd(
+        self,
+        interaction: discord.Interaction,
+        file: discord.Attachment,
+        mode: str = "merge",
+    ) -> None:
+        if not await self._can_use(interaction):
+            return
+        assert interaction.guild
+        if not file.filename.lower().endswith(".json"):
+            await interaction.response.send_message("File must be .json", ephemeral=True)
+            return
+        blob = await file.read()
+        try:
+            payload = json.loads(blob.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            await interaction.response.send_message("Invalid JSON payload.", ephemeral=True)
+            return
+        entries = payload.get("entries")
+        if not isinstance(entries, list):
+            await interaction.response.send_message("Payload missing `entries` list.", ephemeral=True)
+            return
+        imported = 0
+        skipped = 0
+        for e in entries[:300]:
+            if not isinstance(e, dict):
+                skipped += 1
+                continue
+            ar_id = str(e.get("ar_id") or "").upper().strip()
+            if not ar_id:
+                skipped += 1
+                continue
+            current = await db.get_autoresponder(interaction.guild.id, ar_id)
+            if current and mode == "merge":
+                skipped += 1
+                continue
+            if current:
+                target_id = ar_id
+            else:
+                created = await db.create_autoresponder(interaction.guild.id, interaction.user.id)
+                target_id = str(created["ar_id"])
+            await db.patch_autoresponder(
+                interaction.guild.id,
+                target_id,
+                {
+                    "status": str(e.get("status") or "draft"),
+                    "trigger_type": str(e.get("trigger_type") or "message"),
+                    "match_mode": str(e.get("match_mode") or "exact"),
+                    "triggers_json": str(e.get("triggers_json") or ""),
+                    "response_text": str(e.get("response_text") or ""),
+                    "priority": int(e.get("priority") or 100),
+                    "cooldown_seconds": int(e.get("cooldown_seconds") or 0),
+                    "required_role_id": e.get("required_role_id"),
+                    "denied_role_id": e.get("denied_role_id"),
+                    "required_channel_id": e.get("required_channel_id"),
+                    "denied_channel_id": e.get("denied_channel_id"),
+                    "trigger_role_id": e.get("trigger_role_id"),
+                    "trigger_channel_id": e.get("trigger_channel_id"),
+                    "trigger_message_id": e.get("trigger_message_id"),
+                    "trigger_emoji": e.get("trigger_emoji"),
+                    "internal_label": e.get("internal_label"),
+                    "internal_note": e.get("internal_note"),
+                },
+            )
+            imported += 1
+        await interaction.response.send_message(
+            embed=success_embed("Import complete", f"Imported: **{imported}** · Skipped: **{skipped}**"),
+            ephemeral=True,
+        )
 
     @ar.command(name="pause", description="Pause autoresponder")
     @app_commands.describe(id="AR-001")
