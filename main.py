@@ -39,6 +39,7 @@ class MikaBot(commands.Bot):
             "extensions_ok": [],
             "extensions_failed": [],
             "global_sync_ok": False,
+            "global_sync_skipped": False,
             "guild_sync_ok": None,
             "views_ok": [],
             "views_failed": [],
@@ -87,22 +88,20 @@ class MikaBot(commands.Bot):
                 log.exception("Failed to load %s", e)
                 self.startup_health["extensions_failed"].append(e)
 
-        try:
-            await self.tree.sync()
-            self.startup_health["global_sync_ok"] = True
-        except Exception:
-            self.startup_health["global_sync_ok"] = False
-            log.exception("Global slash sync failed")
-
-        # Guild-scoped sync updates slash commands in that server immediately (global sync can lag hours).
+        # Register slash commands in ONE scope only. Order matters: push empty globals to Discord
+        # *before* uploading guild commands, so the API never briefly has both (merged list = duplicates).
         if config.SYNC_GUILD_ID:
+            self.startup_health["global_sync_skipped"] = True
             guild_obj = discord.Object(id=config.SYNC_GUILD_ID)
             try:
                 self.tree.copy_global_to(guild=guild_obj)
+                self.tree.clear_commands(guild=None)
+                await self.tree.sync()
                 await self.tree.sync(guild=guild_obj)
                 self.startup_health["guild_sync_ok"] = True
                 log.info(
-                    "Slash commands synced to guild %s — use this server for up-to-date commands.",
+                    "Guild-only slash sync (%s): globals cleared on API, then guild tree pushed. "
+                    "Other servers have no slash commands until you unset SYNC_GUILD_ID and restart.",
                     config.SYNC_GUILD_ID,
                 )
             except discord.HTTPException:
@@ -110,6 +109,25 @@ class MikaBot(commands.Bot):
                 log.exception(
                     "Guild slash sync failed (is the bot in that server and is SYNC_GUILD_ID correct?)"
                 )
+            except Exception:
+                self.startup_health["guild_sync_ok"] = False
+                log.exception("Slash sync (guild + global clear) failed")
+        else:
+            try:
+                # Stale guild-scoped commands (from old SYNC_GUILD_ID runs) + new globals both show
+                # in the same server — PUT empty to this guild first removes the guild copy.
+                if config.GUILD_SLASH_PURGE_ID:
+                    purge = discord.Object(id=config.GUILD_SLASH_PURGE_ID)
+                    await self.tree.sync(guild=purge)
+                    log.info(
+                        "GUILD_SLASH_PURGE_ID=%s: wiped guild-scoped slash commands on Discord.",
+                        config.GUILD_SLASH_PURGE_ID,
+                    )
+                await self.tree.sync()
+                self.startup_health["global_sync_ok"] = True
+            except Exception:
+                self.startup_health["global_sync_ok"] = False
+                log.exception("Global slash sync failed")
 
         try:
             self.add_view(TOSAgreeView())
@@ -242,7 +260,13 @@ async def _send_startup_health_report_once() -> None:
     emb = discord.Embed(title=status, color=0x57F287 if status.startswith("✅") else 0xFEE75C)
     emb.add_field(name="Database", value="✅" if health.get("db_init_ok") else "❌", inline=True)
     emb.add_field(name="Config validation", value="✅" if health.get("config_ok") else "❌", inline=True)
-    emb.add_field(name="Global sync", value="✅" if health.get("global_sync_ok") else "❌", inline=True)
+    if health.get("global_sync_skipped"):
+        global_sync_val = "⏭️ skipped (guild-only)"
+    elif health.get("global_sync_ok"):
+        global_sync_val = "✅"
+    else:
+        global_sync_val = "❌"
+    emb.add_field(name="Global sync", value=global_sync_val, inline=True)
     guild_sync = health.get("guild_sync_ok")
     emb.add_field(
         name="Guild sync",

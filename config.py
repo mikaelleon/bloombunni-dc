@@ -66,9 +66,13 @@ def _load() -> None:
 
 _load()
 
-# Optional: sync slash commands to this guild immediately (avoids long global propagation
-# and CommandSignatureMismatch while testing). Right‑click server → Copy Server ID.
+# Optional: guild-only slash sync (fast; clears global app commands so this guild does not show
+# duplicate slash entries). While set, other guilds have no bot slash commands — unset for multi‑guild.
+# Right‑click server → Copy Server ID.
 SYNC_GUILD_ID: int | None = _optional_int("SYNC_GUILD_ID")
+# When unsetting SYNC_GUILD_ID: set once to a server ID, restart, then remove — wipes guild-scoped
+# slash commands on Discord so they do not stack with global commands (duplicate /commands).
+GUILD_SLASH_PURGE_ID: int | None = _optional_int("GUILD_SLASH_PURGE_ID")
 BOT_OWNER_ID: int | None = _optional_int("BOT_OWNER_ID")
 ERROR_ALERT_CHANNEL_ID: int | None = _optional_int("ERROR_ALERT_CHANNEL_ID")
 
@@ -86,6 +90,8 @@ def validate_config() -> None:
 
     if SYNC_GUILD_ID is not None and SYNC_GUILD_ID <= 0:
         errors.append("SYNC_GUILD_ID must be a positive integer.")
+    if GUILD_SLASH_PURGE_ID is not None and GUILD_SLASH_PURGE_ID <= 0:
+        errors.append("GUILD_SLASH_PURGE_ID must be a positive integer.")
     if BOT_OWNER_ID is not None and BOT_OWNER_ID <= 0:
         errors.append("BOT_OWNER_ID must be a positive integer.")
     if ERROR_ALERT_CHANNEL_ID is not None and ERROR_ALERT_CHANNEL_ID <= 0:

@@ -30,6 +30,13 @@
 | **`quote_currency`** | Enabled FX codes for quote footer. |
 | **`wizard_sessions`** | In-progress `/setup` bookkeeping (not full UI restore). |
 | **`guild_flags`** | e.g. **`setup_hint_sent`** for first-join prompt. |
+| **`embed_builder_meta`** | Per-guild counter for last assigned **`EMB-XXX`** id. |
+| **`embed_builder_embeds`** | Saved embed drafts/rows (`/embed`). |
+| **`embed_builder_staff_roles`** | Roles allowed to use **`/embed`** and **`/button`**. |
+| **`embed_builder_audit`** | Optional audit lines for embed builder actions. |
+| **`button_builder_meta`** | Per-guild counter for last assigned **`BTN-XXX`** id. |
+| **`button_builder_buttons`** | Saved button configs (`/button`): label, style, action type, role id, responses JSON, etc. |
+| **`button_builder_audit`** | Optional audit lines for button builder actions. |
 
 ## Key helpers (non-exhaustive)
 
@@ -37,5 +44,7 @@
 - **`get_guild_string_setting` / `set_guild_string_setting`** — text map.
 - **`guild_has_any_config`** — whether setup hint should be skipped.
 - **`clear_quote_data_for_guild`** — pricing reset from `/config reset`.
+- **`create_builder_embed` / `get_builder_embed` / `list_builder_embeds` / `patch_builder_embed` / `delete_builder_embed`** — `/embed` storage.
+- **`create_builder_button` / `get_builder_button` / `list_builder_buttons` / `patch_builder_button` / `delete_builder_button` / `clone_builder_button`** — `/button` storage.
 
-For command-level behavior, see the feature docs linked from [README.md](README.md).
+For command-level behavior, see the project [`README.md`](../README.md) and the feature docs linked from [README.md](README.md).

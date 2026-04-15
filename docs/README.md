@@ -33,6 +33,8 @@ Technical reference for the **Mika Shop** Discord bot (code under `bot/`). Opera
 | [drops.md](drops.md) | `/drop`, `/drophistory`, completion DM |
 | [owner-tools.md](owner-tools.md) | `/purge_bot_dms` |
 
+**Builders (operator summary in project [`README.md`](../README.md)):** **`/embed`** — `cogs/embed_builder.py`, tables `embed_builder_*`. **`/button`** — `cogs/button_builder.py`, tables `button_builder_*`. Shared staff allow-list: **`/embed config staffrole`**. Roadmap doc: [`button builder/embed-button-improvements.md`](../button%20builder/embed-button-improvements.md).
+
 ## Data reference
 
 | [database-reference.md](database-reference.md) | SQLite tables and keys overview |

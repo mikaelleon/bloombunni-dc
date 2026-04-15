@@ -17,15 +17,14 @@
 2. **`config.validate_config()`** — ensures token exists.
 3. **Loads extensions** (in order):
 
-   `cogs.owner_tools`, `cogs.config_cmd`, `cogs.setup_wizard`, `cogs.quotes`, `cogs.tickets`, `cogs.queue`, `cogs.shop`, `cogs.vouch`, `cogs.warn`, `cogs.sticky`, `cogs.drop`, `cogs.payment`
+   `cogs.owner_tools`, `cogs.embed_builder`, `cogs.button_builder`, `cogs.config_cmd`, `cogs.setup_wizard`, `cogs.quotes`, `cogs.tickets`, `cogs.queue`, `cogs.shop`, `cogs.vouch`, `cogs.warn`, `cogs.sticky`, `cogs.drop`, `cogs.payment`
 
-4. **`await self.tree.sync()`** — global slash sync.
-5. **Optional guild sync**: if `SYNC_GUILD_ID` is set in `.env`, copies globals to that guild and syncs there immediately (avoids long global propagation and `CommandSignatureMismatch` while developing).
-6. **Persistent views** registered with the bot:
+4. **Slash sync (one scope only):** if **`SYNC_GUILD_ID`** is set → `copy_global_to` → `clear_commands(guild=None)` → **`tree.sync()`** (empty globals on Discord **first**) → **`tree.sync(guild=…)`** (guild commands second). If **`SYNC_GUILD_ID`** is unset → optional **`GUILD_SLASH_PURGE_ID`** runs **`tree.sync(guild=…)`** with an empty payload first (wipes stale guild-scoped commands), then **`tree.sync()`** (global).
+5. **Persistent views** registered with the bot:
    - `TOSAgreeView` (shop)
    - `PaymentView` (payment panel buttons)
-7. **`register_ticket_persistent_views(self)`** — re-attaches ticket panel button views and `CloseTicketView` from DB.
-8. **`register_order_status_views(self)`** — re-attaches queue **order status** dropdowns for open orders.
+6. **`register_ticket_persistent_views(self)`** — re-attaches ticket panel button views and `CloseTicketView` from DB.
+7. **`register_order_status_views(self)`** — re-attaches queue **order status** dropdowns for open orders.
 
 ### `on_ready`
 
@@ -49,7 +48,8 @@ There is **no** `on_message` in `main.py`; message listeners live in cogs (vouch
 | Variable | Role |
 |----------|------|
 | **`BOT_TOKEN`** | Required; bot login token (`.env`). |
-| **`SYNC_GUILD_ID`** | Optional integer; guild-scoped slash sync for faster updates. |
+| **`SYNC_GUILD_ID`** | Optional; when set, guild-only slash sync (fast; avoids duplicate slash entries in that server). Unset for global registration across all servers. |
+| **`GUILD_SLASH_PURGE_ID`** | Optional; with **`SYNC_GUILD_ID` unset**, `tree.sync(guild)` with empty payload once to remove stale guild slash commands (use if duplicates remain after switching sync mode). |
 | **`DATABASE_PATH`** | SQLite file (default `bot/bot.db`). |
 | **`TOS_FILE`** | Default TOS text for `/deploy tos` (`tos.txt`). |
 | **`TEMPLATES_FILE`** | Default queue templates (`templates.json`). |

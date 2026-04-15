@@ -37,6 +37,7 @@ Planned expansion systems (`plans/`) progress: **0%**
 - [x] Payment info panels and payment-confirm flow - **100%**
 - [x] Quote calculator and ticket quote integration - **100%**
 - [x] Staff moderation and utility commands (warn, sticky, drop, vouch) - **100%**
+- [x] Embed builder (`/embed`) and button builder (`/button`) for staff — **implemented** (panels that combine embeds + buttons as saved objects are not implemented yet)
 - [ ] Remaining polish and optional enhancements from backlog - **20%**
 - [ ] Plan 01: MYO system (`plans/01_MYO_SYSTEM.md`) - **0%**
 - [ ] Plan 02: Batch and slot system (`plans/02_BATCH_SLOT_SYSTEM.md`) - **0%**
@@ -62,13 +63,15 @@ Planned expansion systems (`plans/`) progress: **0%**
 - **Moderation:** Warn members, DM a notice, optional auto-ban after a set number of warns, warn log channel.
 - **Sticky messages:** Keep a chosen embed reposted at the bottom of a channel.
 - **Server wiring:** Map channels and roles by **picking them in slash commands** (`/setup` wizard or **`/config view`** to audit).
+- **Embeds (staff):** Create and edit server-scoped embeds with IDs like **`EMB-001`** using **`/embed`** — interactive builder, variable placeholders (for example `{user_name}`, `{server_name}`), list/browse, and post to a channel.
+- **Role buttons (staff):** Create interactive role buttons with IDs like **`BTN-001`** using **`/button`** — assign, remove, or toggle a role; optional emoji, color, staff-only notes, and custom ephemeral messages; post to a channel. Access is limited to **server owner**, **Administrators**, and roles allowed via **`/embed config staffrole`** (shared allow-list with the embed builder).
 
 ---
 
 ## What the bot does not do (yet)
 
 - **No built-in economy or fake currency** (no coins, shop balances, or games).
-- **No generic “embed builder” wizard** like some third-party bots (you use panels, stickies, and templates instead).
+- **No saved “panel” objects** that bundle one embed plus a full button layout (that roadmap lives in `button builder/embed-button-improvements.md`; the bot does **not** yet match every Mimu-style feature described there).
 - **No automatic payments or invoicing**—it only **shows** payment info you configure; it does not charge cards or verify PayPal.
 - **No built-in AI or image generation.**
 - **No full moderation suite** (no automod, timeout commands, or ban suite beyond warn-driven auto-ban if you enable that flow).
@@ -118,6 +121,7 @@ Planned expansion systems (`plans/`) progress: **0%**
    ```
 
 8. **First run** creates a local database file **`bot.db`**. Do not share it if it contains private data.
+9. **Slash command sync (optional):** See **`.env.example`** for **`SYNC_GUILD_ID`** (guild-only registration) and **`GUILD_SLASH_PURGE_ID`** (one-time wipe of stale guild-scoped commands if you still see duplicate `/` entries after changing sync mode).
 
 ### B. Wire the server (inside Discord)
 
@@ -216,6 +220,22 @@ If something fails with “missing permissions,” give the bot’s role a highe
 
 - Staff sets an embed that the bot **reposts** so it stays at the bottom of a channel (`/sticky`, `/stickyupdate`, `/unsticky`, `/stickies`, `/stickypreview`).
 
+### Embed builder (`/embed`)
+
+- **Who can use it:** Server owner, **Administrator**, or members with a role added through **`/embed config staffrole`** (same list controls **`/button`**).
+- **`/embed create`:** Creates a new draft **`EMB-XXX`** ID and opens an **interactive builder** (edit title, description, color, author, footer, images, timestamp; preview and discard).
+- **`/embed edit`:** Reopens the builder for an existing ID; optional `field` shortcut for a single field.
+- **`/embed list`** / **`/embed showlist`:** List IDs or browse with previews.
+- **`/embed show`:** Post a resolved embed (variables filled using the user who runs the command) to a chosen text channel.
+- **`/embed config staffrole`:** Add or remove roles that may use **`/embed`** and **`/button`** (owner/admin only).
+
+### Button builder (`/button`)
+
+- **Who can use it:** Same as **`/embed`** (owner, **Administrator**, embed staff roles).
+- **`/button create`:** New **`BTN-XXX`** ID and builder — label, emoji, style, **action + role** (assign, remove, or toggle), staff-only label/note, optional response text for outcomes, live preview row.
+- **`/button edit`**, **`/button clone`**, **`/button list`:** Edit or duplicate a button, or list all buttons on the server.
+- **`/button post`:** Post a short info embed and the live button to a text channel. Posted buttons stay wired to the database (clicks use current config after restarts). Users only see **ephemeral** feedback when they click.
+
 ### Planned core systems (unimplemented)
 
 The following systems are documented in `plans/` and are **not implemented yet**:
@@ -291,6 +311,18 @@ Use **`/setup`** for the interactive wizard, or audit settings with **`/config v
 
 ---
 
+### Embed and button builders (owner / Administrator / embed staff role)
+
+These commands are **not** the same as the general **Staff** role used for tickets. They use the **embed staff** allow-list from **`/embed config staffrole`**, plus owners and administrators.
+
+| Command | What it does |
+|--------|----------------|
+| **`/embed create`**, **`/embed edit`**, **`/embed list`**, **`/embed showlist`**, **`/embed show`** | Create and manage **`EMB-XXX`** embeds; post to a channel. |
+| **`/embed config staffrole`** | **Owner/admin only** — grant **`/embed`** / **`/button`** access to a role. |
+| **`/button create`**, **`/button edit`**, **`/button clone`**, **`/button list`**, **`/button post`** | Create and manage **`BTN-XXX`** role buttons; post a button to a channel. |
+
+---
+
 ## Hosting the bot online
 
 For **Render**, Railway, or similar: run **`python main.py`** as the start command from the **`bot`** folder. Set **`BOT_TOKEN`** (and **`PORT`** is provided automatically on Render). The keep-alive server listens on **`PORT`** (defaults to **8080** locally). Do **not** point the app at a different port than **`PORT`** or public URLs may return **502**. Check your provider’s docs for “background worker” vs “web service.”
@@ -302,8 +334,10 @@ For **Render**, Railway, or similar: run **`python main.py`** as the start comma
 | Item | Role |
 |------|------|
 | **`main.py`** | Starts the bot. |
+| **`cogs/embed_builder.py`** | `/embed` commands and interactive embed builder. |
+| **`cogs/button_builder.py`** | `/button` commands and interactive role-button builder. |
 | **`.env`** | **Bot token only** in the default setup (never commit this). |
-| **`bot.db`** | Local database (orders, tickets, warns, guild settings, etc.). |
+| **`bot.db`** | Local database (orders, tickets, warns, guild settings, embed/button builder rows, etc.). |
 | **`tos.txt`** | Text for the TOS panel. |
 | **`templates.json`** | Default wording for queue/ticket messages (staff can override in the database). |
 
@@ -312,4 +346,6 @@ For **Render**, Railway, or similar: run **`python main.py`** as the start comma
 ## More documentation
 
 - [`docs/README.md`](docs/README.md) — index of extra docs.
+- [`docs/database-reference.md`](docs/database-reference.md) — SQLite tables overview (includes embed/button builder tables).
 - [`docs/TICKETING.md`](docs/TICKETING.md) — ticket system behavior (may lag behind code; prefer this README + `/config view` for current commands).
+- [`button builder/embed-button-improvements.md`](button%20builder/embed-button-improvements.md) — design notes and future ideas for panels, conditions, analytics (implementation varies; see sections above for what the bot does today).
