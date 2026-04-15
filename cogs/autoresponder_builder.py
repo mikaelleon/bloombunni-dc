@@ -1202,6 +1202,31 @@ class AutoResponderCog(commands.Cog, name="AutoResponderCog"):
         await interaction.response.send_message(embed=success_embed("Resumed", f"{id.upper()} active."), ephemeral=True)
         _autodismiss_response(interaction, 10)
 
+    @ar.command(name="setembed", description="Set AR response to a builder embed")
+    @app_commands.describe(id="AR-001", embed_id="EMB-001")
+    @app_commands.autocomplete(id=_ar_id_autocomplete)
+    async def setembed_cmd(self, interaction: discord.Interaction, id: str, embed_id: str) -> None:
+        if not await self._can_use(interaction):
+            return
+        assert interaction.guild
+        emb = await db.get_builder_embed(interaction.guild.id, embed_id.upper())
+        if not emb:
+            await interaction.response.send_message(embed=user_hint("Embed missing", f"No embed `{embed_id.upper()}`."), ephemeral=True)
+            return
+        ok = await db.patch_autoresponder(
+            interaction.guild.id,
+            id.upper(),
+            {"response_text": f"{{embed:{embed_id.upper()}}}"},
+        )
+        if not ok:
+            await interaction.response.send_message("AR not found.", ephemeral=True)
+            return
+        await db.log_autoresponder_action(interaction.guild.id, interaction.user.id, "set_embed", id.upper())
+        await interaction.response.send_message(
+            embed=success_embed("AR linked", f"{id.upper()} now sends `{embed_id.upper()}`."),
+            ephemeral=True,
+        )
+
 
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(AutoResponderCog(bot))

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import re
 from difflib import get_close_matches
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import discord
@@ -17,6 +19,7 @@ from utils.embeds import info_embed, success_embed, user_hint, user_warn
 _VAR_PATTERN = re.compile(r"\{[a-z_]+\}")
 _IMAGE_URL_RE = re.compile(r"^https?://", re.IGNORECASE)
 _IMAGE_EXT_RE = re.compile(r"\.(png|jpg|jpeg|gif|webp)(\?.*)?$", re.IGNORECASE)
+_WORKSPACE_ROOT = Path(__file__).resolve().parents[1]
 
 KNOWN_VARS: dict[str, str] = {
     "{user_name}": "Triggering user display name",
@@ -151,6 +154,111 @@ def _builder_header_embed(embed_id: str) -> discord.Embed:
         f"✨ editing: {embed_id}",
         "please select from the buttons below for what you'd like to edit.\nvariables resolve when posted/triggers run.",
     )
+
+
+def _load_embed_updates_from_markdown(raw: str) -> dict[str, Any]:
+    text = raw.replace("\r\n", "\n").strip()
+    if not text:
+        return {}
+    title: str | None = None
+    lines = text.split("\n")
+    if lines and lines[0].startswith("# "):
+        title = lines[0][2:].strip()[:256] or None
+        text = "\n".join(lines[1:]).strip()
+    updates: dict[str, Any] = {"description": text[:4000] or None}
+    if title:
+        updates["title"] = title
+    return updates
+
+
+def _load_embed_updates_from_json(raw: str) -> dict[str, Any]:
+    payload = json.loads(raw)
+    if not isinstance(payload, dict):
+        raise ValueError("JSON root must be object.")
+    map_fields = {
+        "title": "title",
+        "description": "description",
+        "body": "description",
+        "color": "color",
+        "author_text": "author_text",
+        "author_icon": "author_icon",
+        "footer_text": "footer_text",
+        "footer_icon": "footer_icon",
+        "thumbnail_url": "thumbnail_url",
+        "image_url": "image_url",
+        "ts_enabled": "ts_enabled",
+    }
+    updates: dict[str, Any] = {}
+    for src, dst in map_fields.items():
+        if src not in payload:
+            continue
+        updates[dst] = payload[src]
+    return updates
+
+
+def _sanitize_embed_updates(updates: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    if "title" in updates:
+        out["title"] = (str(updates.get("title") or "").strip() or None)
+        if out["title"]:
+            out["title"] = str(out["title"])[:256]
+    if "description" in updates:
+        out["description"] = (str(updates.get("description") or "").strip() or None)
+        if out["description"]:
+            out["description"] = str(out["description"])[:4000]
+    if "color" in updates:
+        color_raw = str(updates.get("color") or "").strip()
+        if color_raw:
+            if not _is_valid_hex(color_raw):
+                raise ValueError("Invalid color hex, expected #RRGGBB.")
+            out["color"] = _format_hex(color_raw)
+    for field in ("author_text", "footer_text"):
+        if field in updates:
+            v = str(updates.get(field) or "").strip()
+            out[field] = v[:2048] or None
+    for field in ("author_icon", "footer_icon", "thumbnail_url", "image_url"):
+        if field in updates:
+            v = str(updates.get(field) or "").strip()
+            if v and not _valid_image_url(v):
+                raise ValueError(f"Invalid image URL for `{field}`.")
+            out[field] = v or None
+    if "ts_enabled" in updates:
+        out["ts_enabled"] = 1 if bool(updates.get("ts_enabled")) else 0
+    return out
+
+
+async def _read_import_source(
+    *,
+    file: discord.Attachment | None,
+    repo_path: str | None,
+) -> tuple[str, str]:
+    if file and repo_path:
+        raise ValueError("Use upload OR repo_path, not both.")
+    if not file and not repo_path:
+        raise ValueError("Provide upload file or repo_path.")
+    if file:
+        name = str(file.filename or "").strip()
+        lower = name.lower()
+        if not (lower.endswith(".md") or lower.endswith(".json")):
+            raise ValueError("Upload must be .md or .json.")
+        blob = await file.read()
+        try:
+            return (name, blob.decode("utf-8"))
+        except UnicodeDecodeError as e:
+            raise ValueError("File must be UTF-8 text.") from e
+    rel = str(repo_path or "").strip().replace("\\", "/")
+    if not rel:
+        raise ValueError("repo_path cannot be empty.")
+    if rel.startswith("/"):
+        raise ValueError("repo_path must be relative to repository root.")
+    abs_path = (_WORKSPACE_ROOT / rel).resolve()
+    if not str(abs_path).startswith(str(_WORKSPACE_ROOT)):
+        raise ValueError("repo_path escapes repository root.")
+    if abs_path.suffix.lower() not in (".md", ".json"):
+        raise ValueError("repo_path must point to .md or .json file.")
+    if not abs_path.exists():
+        raise ValueError("repo_path file not found.")
+    return (rel, abs_path.read_text(encoding="utf-8"))
 
 
 async def _refresh_builder_message(
@@ -1007,6 +1115,75 @@ class EmbedBuilderCog(commands.Cog, name="EmbedBuilderCog"):
             view.message = await interaction.original_response()
         except discord.HTTPException:
             pass
+
+    @embed.command(name="importfile", description="Import embed values from .md/.json file")
+    @app_commands.describe(
+        id="Existing embed ID (optional, blank = create new)",
+        file="Upload .md or .json",
+        repo_path="Repo-relative .md/.json path (example: docs/pricelist.md)",
+    )
+    @app_commands.autocomplete(id=_embed_id_autocomplete)
+    async def importfile_cmd(
+        self,
+        interaction: discord.Interaction,
+        id: str | None = None,
+        file: discord.Attachment | None = None,
+        repo_path: str | None = None,
+    ) -> None:
+        if not await self._can_use(interaction):
+            return
+        assert interaction.guild
+        try:
+            source_name, raw = await _read_import_source(file=file, repo_path=repo_path)
+        except ValueError as e:
+            await interaction.response.send_message(embed=user_hint("Import failed", str(e)), ephemeral=True)
+            return
+
+        lower_name = source_name.lower()
+        try:
+            if lower_name.endswith(".json"):
+                updates_raw = _load_embed_updates_from_json(raw)
+            else:
+                updates_raw = _load_embed_updates_from_markdown(raw)
+            updates = _sanitize_embed_updates(updates_raw)
+        except (ValueError, json.JSONDecodeError) as e:
+            await interaction.response.send_message(embed=user_hint("Import parse failed", str(e)), ephemeral=True)
+            return
+        if not updates:
+            await interaction.response.send_message(embed=user_hint("Nothing to import", "File did not contain embed fields."), ephemeral=True)
+            return
+
+        row: dict[str, Any] | None = None
+        if id and id.strip():
+            row = await db.get_builder_embed(interaction.guild.id, id.strip().upper())
+            if not row:
+                await interaction.response.send_message(embed=user_hint("Missing", f"No embed `{id.strip().upper()}`."), ephemeral=True)
+                return
+        else:
+            row = await db.create_builder_embed(interaction.guild.id, interaction.user.id)
+
+        ok = await db.patch_builder_embed(interaction.guild.id, str(row["embed_id"]), updates)
+        if not ok:
+            await interaction.response.send_message(embed=user_hint("Import failed", "Could not patch embed row."), ephemeral=True)
+            return
+        refreshed = await db.get_builder_embed(interaction.guild.id, str(row["embed_id"]))
+        if not refreshed:
+            await interaction.response.send_message(embed=user_hint("Import failed", "Embed row disappeared after patch."), ephemeral=True)
+            return
+        await db.log_embed_builder_action(
+            interaction.guild.id,
+            interaction.user.id,
+            "importfile",
+            str(row["embed_id"]),
+        )
+        changed = ", ".join(sorted(updates.keys()))
+        await interaction.response.send_message(
+            embeds=[
+                success_embed("Import complete", f"`{row['embed_id']}` updated from `{source_name}`.\nFields: {changed}"),
+                _builder_preview(refreshed),
+            ],
+            ephemeral=True,
+        )
 
 
 async def setup(bot: commands.Bot) -> None:
