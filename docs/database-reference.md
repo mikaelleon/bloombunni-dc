@@ -37,6 +37,10 @@
 | **`button_builder_meta`** | Per-guild counter for last assigned **`BTN-XXX`** id. |
 | **`button_builder_buttons`** | Saved button configs (`/button`): label, style, action type, role id, responses JSON, etc. |
 | **`button_builder_audit`** | Optional audit lines for button builder actions. |
+| **`ar_builder_meta`** | Per-guild counter for last assigned **`AR-XXX`** id. |
+| **`ar_builder_entries`** | Saved autoresponder configs (`/ar`): trigger type/match mode, trigger group text, response, status, priority, cooldown, role/channel conditions, counters. |
+| **`ar_builder_user_cooldowns`** | Per-user last-fire timestamps for autoresponder cooldown checks. |
+| **`ar_builder_audit`** | Optional audit lines for autoresponder actions and fires. |
 
 ## Key helpers (non-exhaustive)
 
@@ -46,5 +50,7 @@
 - **`clear_quote_data_for_guild`** — pricing reset from `/config reset`.
 - **`create_builder_embed` / `get_builder_embed` / `list_builder_embeds` / `patch_builder_embed` / `delete_builder_embed`** — `/embed` storage.
 - **`create_builder_button` / `get_builder_button` / `list_builder_buttons` / `patch_builder_button` / `delete_builder_button` / `clone_builder_button`** — `/button` storage.
+- **`create_autoresponder` / `get_autoresponder` / `list_autoresponders` / `list_active_autoresponders` / `patch_autoresponder` / `delete_autoresponder`** — `/ar` storage.
+- **`get_autoresponder_last_fire` / `bump_autoresponder_fire_count`** — runtime cooldown + fire counters.
 
 For command-level behavior, see the project [`README.md`](../README.md) and the feature docs linked from [README.md](README.md).

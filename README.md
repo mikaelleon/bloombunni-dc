@@ -29,7 +29,7 @@ A Discord bot for running a **small art commission shop** in your server: agree 
 
 ## Current progress
 
-Overall core bot progress: **80%**
+Overall core bot progress: **84%**
 Planned expansion systems (`plans/`) progress: **0%**
 
 - [x] Core ticketing flow (panel, open, close, transcript) - **100%**
@@ -39,6 +39,9 @@ Planned expansion systems (`plans/`) progress: **0%**
 - [x] Staff moderation and utility commands (warn, sticky, drop, vouch) - **100%**
 - [x] Embed builder (`/embed`) and button builder (`/button`) for staff — **implemented** (panels that combine embeds + buttons as saved objects are not implemented yet)
 - [x] Autoresponder builder foundation (`/ar`) — **implemented (core)**: builder, message triggers, conditions, cooldown, pause/resume, ID autocomplete
+- [x] ID autocomplete rollout for edit/post/delete-style commands across builders (`/embed`, `/button`, `/ar`)
+- [x] Conditions editor UX upgrade (role/channel dropdown selectors; no developer mode IDs needed)
+- [x] Ephemeral confirmation auto-dismiss (10s) for `/ar` micro-updates and status actions
 - [ ] Autoresponder full-spec parity (`autoresponder builder/autoresponder-full-spec.md`) — **in progress**
 - [ ] Remaining polish and optional enhancements from backlog - **20%**
 - [ ] Plan 01: MYO system (`plans/01_MYO_SYSTEM.md`) - **0%**
@@ -59,6 +62,7 @@ Planned expansion systems (`plans/`) progress: **0%**
 - [x] Modal editing and live preview
 - [x] Staff role allow-list (`/embed config staffrole`)
 - [x] ID autocomplete in edit/show commands
+- [ ] Full panel-builder parity from spec (`button builder/embed-button-improvements.md`)
 
 ### Button builder checklist (`/button`)
 
@@ -66,18 +70,21 @@ Planned expansion systems (`plans/`) progress: **0%**
 - [x] Action modes: assign/remove/toggle role
 - [x] Posted live button callback wiring
 - [x] ID autocomplete in edit/clone/post commands
+- [ ] Full action parity from spec (multi-role, exclusive groups, analytics, history)
 
 ### Autoresponder builder checklist (`/ar`)
 
 - [x] Create/edit/delete/list/pause/resume
 - [x] Trigger groups + match modes (`exact`, `startswith`, `endswith`, `includes`, `word_boundary`)
 - [x] Conditions editor with role/channel dropdowns + cooldown modal
+- [x] Conditions update toasts auto-dismiss in 10s
 - [x] Per-user cooldown and runtime fire handling
 - [x] ID autocomplete in edit/delete/pause/resume
 - [x] Auto-dismiss short confirmation toasts (10s) in conditions and status updates
 - [ ] Full function parity from spec (`{requirearg}`, inventory/currency modifiers, full redirect suite)
 - [ ] Event triggers (join/leave/role/reaction)
 - [ ] Analytics/version history/templates/import-export
+- [ ] Chain flows and panel/template integrations
 
 ---
 
@@ -394,7 +401,7 @@ For **Render**, Railway, or similar: run **`python main.py`** as the start comma
 | **`cogs/button_builder.py`** | `/button` commands and interactive role-button builder. |
 | **`cogs/autoresponder_builder.py`** | `/ar` commands and runtime message-trigger engine. |
 | **`.env`** | **Bot token only** in the default setup (never commit this). |
-| **`bot.db`** | Local database (orders, tickets, warns, guild settings, embed/button builder rows, etc.). |
+| **`bot.db`** | Local database (orders, tickets, warns, guild settings, embed/button/autoresponder builder rows, etc.). |
 | **`tos.txt`** | Text for the TOS panel. |
 | **`templates.json`** | Default wording for queue/ticket messages (staff can override in the database). |
 
