@@ -24,6 +24,17 @@ def _utc_now_ts() -> int:
     return int(datetime.now(timezone.utc).timestamp())
 
 
+def _autodismiss_response(interaction: discord.Interaction, seconds: int = 10) -> None:
+    async def _cleanup() -> None:
+        await asyncio.sleep(seconds)
+        try:
+            await interaction.delete_original_response()
+        except (discord.HTTPException, discord.NotFound):
+            pass
+
+    asyncio.create_task(_cleanup())
+
+
 def _normalize_trigger_lines(raw: str) -> list[str]:
     lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
     out: list[str] = []
@@ -175,7 +186,7 @@ class TriggerModal(discord.ui.Modal, title="Trigger + matchmode"):
         required=True,
     )
     match_mode = discord.ui.TextInput(
-        label="Match mode (exact|startswith|endswith|includes|word_boundary)",
+        label="Match mode (exact/starts/ends/includes/word)",
         max_length=32,
         required=True,
         default="exact",
@@ -238,21 +249,21 @@ class ResponseModal(discord.ui.Modal, title="Response text"):
         await _refresh_builder(interaction, row, interaction.user.id)
 
 
-class ConditionsModal(discord.ui.Modal, title="Conditions"):
-    cooldown = discord.ui.TextInput(label="Per-user cooldown seconds", required=False, max_length=8)
-    req_role = discord.ui.TextInput(label="Required role ID (optional)", required=False, max_length=30)
-    deny_role = discord.ui.TextInput(label="Denied role ID (optional)", required=False, max_length=30)
-    req_channel = discord.ui.TextInput(label="Required channel ID (optional)", required=False, max_length=30)
-    deny_channel = discord.ui.TextInput(label="Denied channel ID (optional)", required=False, max_length=30)
+class CooldownModal(discord.ui.Modal, title="Set cooldown"):
+    cooldown = discord.ui.TextInput(label="Cooldown seconds (0-86400)", required=True, max_length=8, default="0")
 
-    def __init__(self, row: dict[str, Any]) -> None:
-        super().__init__(title=f"{row['ar_id']} · conditions"[:45])
+    def __init__(
+        self,
+        row: dict[str, Any],
+        *,
+        builder_message: discord.Message,
+        editor_id: int,
+    ) -> None:
+        super().__init__(title=f"{row['ar_id']} · cooldown"[:45])
         self.row = row
+        self.builder_message = builder_message
+        self.editor_id = editor_id
         self.cooldown.default = str(int(row.get("cooldown_seconds") or 0))
-        self.req_role.default = str(row.get("required_role_id") or "")
-        self.deny_role.default = str(row.get("denied_role_id") or "")
-        self.req_channel.default = str(row.get("required_channel_id") or "")
-        self.deny_channel.default = str(row.get("denied_channel_id") or "")
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         try:
@@ -260,40 +271,166 @@ class ConditionsModal(discord.ui.Modal, title="Conditions"):
         except ValueError:
             await interaction.response.send_message("Cooldown must be number.", ephemeral=True)
             return
-
-        def parse_id(v: str) -> int | None:
-            t = v.strip()
-            if not t:
-                return None
-            if not t.isdigit():
-                raise ValueError("id")
-            return int(t)
-
-        try:
-            req_role = parse_id(str(self.req_role.value or ""))
-            deny_role = parse_id(str(self.deny_role.value or ""))
-            req_ch = parse_id(str(self.req_channel.value or ""))
-            deny_ch = parse_id(str(self.deny_channel.value or ""))
-        except ValueError:
-            await interaction.response.send_message("Role/channel ids must be numeric.", ephemeral=True)
-            return
-
         await db.patch_autoresponder(
             int(self.row["guild_id"]),
             str(self.row["ar_id"]),
             {
                 "cooldown_seconds": cooldown,
-                "required_role_id": req_role,
-                "denied_role_id": deny_role,
-                "required_channel_id": req_ch,
-                "denied_channel_id": deny_ch,
             },
         )
         row = await db.get_autoresponder(int(self.row["guild_id"]), str(self.row["ar_id"]))
         if not row:
             await interaction.response.send_message("AR missing.", ephemeral=True)
             return
-        await _refresh_builder(interaction, row, interaction.user.id)
+        view = ARBuilderView(row, self.editor_id)
+        try:
+            await self.builder_message.edit(embed=_ar_preview_embed(row), view=view)
+        except (discord.NotFound, discord.HTTPException):
+            # Ephemeral source message can be non-editable by channel endpoint.
+            pass
+        await interaction.response.send_message(embed=success_embed("Cooldown set", f"{cooldown}s"), ephemeral=True)
+        _autodismiss_response(interaction, 10)
+
+
+class ConditionsEditorView(discord.ui.View):
+    def __init__(self, row: dict[str, Any], *, builder_message: discord.Message | None, editor_id: int) -> None:
+        super().__init__(timeout=300)
+        self.row = row
+        self.builder_message = builder_message
+        self.editor_id = editor_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.editor_id:
+            await interaction.response.send_message("Only builder owner can edit conditions.", ephemeral=True)
+            return False
+        return True
+
+    async def _update_builder(self) -> dict[str, Any] | None:
+        row = await db.get_autoresponder(int(self.row["guild_id"]), str(self.row["ar_id"]))
+        if not row:
+            return None
+        self.row = row
+        if self.builder_message is not None:
+            view = ARBuilderView(row, self.editor_id)
+            try:
+                await self.builder_message.edit(embed=_ar_preview_embed(row), view=view)
+            except (discord.NotFound, discord.HTTPException):
+                # Do not fail component interaction when source message can't be edited.
+                pass
+        return row
+
+    def _summary(self) -> str:
+        return (
+            f"Cooldown: `{int(self.row.get('cooldown_seconds') or 0)}s`\n"
+            f"Required role: `{self.row.get('required_role_id') or 'none'}`\n"
+            f"Denied role: `{self.row.get('denied_role_id') or 'none'}`\n"
+            f"Required channel: `{self.row.get('required_channel_id') or 'none'}`\n"
+            f"Denied channel: `{self.row.get('denied_channel_id') or 'none'}`"
+        )
+
+    @discord.ui.select(
+        cls=discord.ui.RoleSelect,
+        placeholder="Required role (optional)",
+        min_values=0,
+        max_values=1,
+        row=0,
+    )
+    async def req_role_pick(self, interaction: discord.Interaction, sel: discord.ui.RoleSelect) -> None:
+        rid = sel.values[0].id if sel.values else None
+        await db.patch_autoresponder(int(self.row["guild_id"]), str(self.row["ar_id"]), {"required_role_id": rid})
+        row = await self._update_builder()
+        if not row:
+            await interaction.response.send_message("AR missing.", ephemeral=True)
+            return
+        await interaction.response.send_message("Required role updated.", ephemeral=True)
+        _autodismiss_response(interaction, 10)
+
+    @discord.ui.select(
+        cls=discord.ui.RoleSelect,
+        placeholder="Denied role (optional)",
+        min_values=0,
+        max_values=1,
+        row=1,
+    )
+    async def deny_role_pick(self, interaction: discord.Interaction, sel: discord.ui.RoleSelect) -> None:
+        rid = sel.values[0].id if sel.values else None
+        await db.patch_autoresponder(int(self.row["guild_id"]), str(self.row["ar_id"]), {"denied_role_id": rid})
+        row = await self._update_builder()
+        if not row:
+            await interaction.response.send_message("AR missing.", ephemeral=True)
+            return
+        await interaction.response.send_message("Denied role updated.", ephemeral=True)
+        _autodismiss_response(interaction, 10)
+
+    @discord.ui.select(
+        cls=discord.ui.ChannelSelect,
+        channel_types=[discord.ChannelType.text],
+        placeholder="Required channel (optional)",
+        min_values=0,
+        max_values=1,
+        row=2,
+    )
+    async def req_ch_pick(self, interaction: discord.Interaction, sel: discord.ui.ChannelSelect) -> None:
+        cid = sel.values[0].id if sel.values else None
+        await db.patch_autoresponder(int(self.row["guild_id"]), str(self.row["ar_id"]), {"required_channel_id": cid})
+        row = await self._update_builder()
+        if not row:
+            await interaction.response.send_message("AR missing.", ephemeral=True)
+            return
+        await interaction.response.send_message("Required channel updated.", ephemeral=True)
+        _autodismiss_response(interaction, 10)
+
+    @discord.ui.select(
+        cls=discord.ui.ChannelSelect,
+        channel_types=[discord.ChannelType.text],
+        placeholder="Denied channel (optional)",
+        min_values=0,
+        max_values=1,
+        row=3,
+    )
+    async def deny_ch_pick(self, interaction: discord.Interaction, sel: discord.ui.ChannelSelect) -> None:
+        cid = sel.values[0].id if sel.values else None
+        await db.patch_autoresponder(int(self.row["guild_id"]), str(self.row["ar_id"]), {"denied_channel_id": cid})
+        row = await self._update_builder()
+        if not row:
+            await interaction.response.send_message("AR missing.", ephemeral=True)
+            return
+        await interaction.response.send_message("Denied channel updated.", ephemeral=True)
+        _autodismiss_response(interaction, 10)
+
+    @discord.ui.button(label="set cooldown", style=discord.ButtonStyle.secondary, row=4)
+    async def cooldown_btn(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        row = await db.get_autoresponder(int(self.row["guild_id"]), str(self.row["ar_id"]))
+        if not row:
+            await interaction.response.send_message("AR missing.", ephemeral=True)
+            return
+        await interaction.response.send_modal(
+            CooldownModal(
+                row,
+                builder_message=self.builder_message,
+                editor_id=self.editor_id,
+            )
+        )
+
+    @discord.ui.button(label="clear all", style=discord.ButtonStyle.secondary, row=4)
+    async def clear_btn(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await db.patch_autoresponder(
+            int(self.row["guild_id"]),
+            str(self.row["ar_id"]),
+            {
+                "cooldown_seconds": 0,
+                "required_role_id": None,
+                "denied_role_id": None,
+                "required_channel_id": None,
+                "denied_channel_id": None,
+            },
+        )
+        row = await self._update_builder()
+        if not row:
+            await interaction.response.send_message("AR missing.", ephemeral=True)
+            return
+        await interaction.response.send_message("Conditions cleared.", ephemeral=True)
+        _autodismiss_response(interaction, 10)
 
 
 class MetaModal(discord.ui.Modal, title="Internal label + note"):
@@ -367,7 +504,18 @@ class ARBuilderView(discord.ui.View):
         if not row:
             await interaction.response.send_message("AR missing.", ephemeral=True)
             return
-        await interaction.response.send_modal(ConditionsModal(row))
+        if interaction.message is None:
+            await interaction.response.send_message("Cannot find builder message.", ephemeral=True)
+            return
+        view = ConditionsEditorView(row, builder_message=interaction.message, editor_id=self.editor_id)
+        summary = (
+            f"Cooldown: `{int(row.get('cooldown_seconds') or 0)}s`\n"
+            f"Required role: `{row.get('required_role_id') or 'none'}`\n"
+            f"Denied role: `{row.get('denied_role_id') or 'none'}`\n"
+            f"Required channel: `{row.get('required_channel_id') or 'none'}`\n"
+            f"Denied channel: `{row.get('denied_channel_id') or 'none'}`"
+        )
+        await interaction.response.send_message(embed=info_embed("Conditions editor", summary), view=view, ephemeral=True)
 
     @discord.ui.button(label="internal label/note", style=discord.ButtonStyle.secondary, row=0)
     async def meta_btn(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
@@ -403,6 +551,7 @@ class ARBuilderView(discord.ui.View):
             embed=success_embed("Saved", f"{self.row['ar_id']} is now active."),
             ephemeral=True,
         )
+        _autodismiss_response(interaction, 10)
         self.stop()
 
     @discord.ui.button(label="discard", style=discord.ButtonStyle.secondary, row=1)
@@ -411,6 +560,7 @@ class ARBuilderView(discord.ui.View):
         if ok:
             await db.log_autoresponder_action(int(self.row["guild_id"]), interaction.user.id, "delete", str(self.row["ar_id"]))
         await interaction.response.send_message(embed=success_embed("Discarded", f"{self.row['ar_id']} deleted."), ephemeral=True)
+        _autodismiss_response(interaction, 10)
         self.stop()
 
 
@@ -440,10 +590,12 @@ class ARDeleteConfirmView(discord.ui.View):
         if ok:
             await db.log_autoresponder_action(int(self.row["guild_id"]), interaction.user.id, "delete", str(self.row["ar_id"]))
         await interaction.response.send_message(embed=success_embed("Deleted", f"{self.row['ar_id']} removed."), ephemeral=True)
+        _autodismiss_response(interaction, 10)
 
     @discord.ui.button(label="cancel", style=discord.ButtonStyle.secondary)
     async def no_btn(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await interaction.response.send_message("Canceled.", ephemeral=True)
+        _autodismiss_response(interaction, 10)
 
 
 class AutoResponderCog(commands.Cog, name="AutoResponderCog"):
@@ -451,6 +603,25 @@ class AutoResponderCog(commands.Cog, name="AutoResponderCog"):
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
+
+    async def _ar_id_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        if not interaction.guild:
+            return []
+        rows = await db.list_autoresponders(interaction.guild.id)
+        needle = current.lower().strip()
+        out: list[app_commands.Choice[str]] = []
+        for r in rows:
+            arid = str(r.get("ar_id") or "")
+            trig = (str(r.get("triggers_json") or "").splitlines() or [""])[0]
+            label = f"{arid} · {trig[:60]}" if trig else arid
+            if needle and needle not in arid.lower() and needle not in trig.lower():
+                continue
+            out.append(app_commands.Choice(name=label[:100], value=arid))
+            if len(out) >= 25:
+                break
+        return out
 
     async def _can_use(self, interaction: discord.Interaction) -> bool:
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
@@ -592,6 +763,7 @@ class AutoResponderCog(commands.Cog, name="AutoResponderCog"):
             app_commands.Choice(name="conditions", value="conditions"),
         ]
     )
+    @app_commands.autocomplete(id=_ar_id_autocomplete)
     async def edit_cmd(self, interaction: discord.Interaction, id: str, field: str | None = None) -> None:
         if not await self._can_use(interaction):
             return
@@ -607,7 +779,12 @@ class AutoResponderCog(commands.Cog, name="AutoResponderCog"):
             await interaction.response.send_modal(ResponseModal(row))
             return
         if field == "conditions":
-            await interaction.response.send_modal(ConditionsModal(row))
+            view = ConditionsEditorView(
+                row,
+                builder_message=None,
+                editor_id=interaction.user.id,
+            )
+            await interaction.response.send_message(embed=info_embed("Conditions editor", view._summary()), view=view, ephemeral=True)
             return
         view = ARBuilderView(row, interaction.user.id)
         await interaction.response.send_message(embed=_ar_preview_embed(row), view=view, ephemeral=True)
@@ -618,6 +795,7 @@ class AutoResponderCog(commands.Cog, name="AutoResponderCog"):
 
     @ar.command(name="delete", description="Delete autoresponder")
     @app_commands.describe(id="AR-001")
+    @app_commands.autocomplete(id=_ar_id_autocomplete)
     async def delete_cmd(self, interaction: discord.Interaction, id: str) -> None:
         if not await self._can_use(interaction):
             return
@@ -654,6 +832,7 @@ class AutoResponderCog(commands.Cog, name="AutoResponderCog"):
 
     @ar.command(name="pause", description="Pause autoresponder")
     @app_commands.describe(id="AR-001")
+    @app_commands.autocomplete(id=_ar_id_autocomplete)
     async def pause_cmd(self, interaction: discord.Interaction, id: str) -> None:
         if not await self._can_use(interaction):
             return
@@ -664,9 +843,11 @@ class AutoResponderCog(commands.Cog, name="AutoResponderCog"):
             return
         await db.log_autoresponder_action(interaction.guild.id, interaction.user.id, "pause", id.upper())
         await interaction.response.send_message(embed=success_embed("Paused", f"{id.upper()} paused."), ephemeral=True)
+        _autodismiss_response(interaction, 10)
 
     @ar.command(name="resume", description="Resume autoresponder")
     @app_commands.describe(id="AR-001")
+    @app_commands.autocomplete(id=_ar_id_autocomplete)
     async def resume_cmd(self, interaction: discord.Interaction, id: str) -> None:
         if not await self._can_use(interaction):
             return
@@ -677,6 +858,7 @@ class AutoResponderCog(commands.Cog, name="AutoResponderCog"):
             return
         await db.log_autoresponder_action(interaction.guild.id, interaction.user.id, "resume", id.upper())
         await interaction.response.send_message(embed=success_embed("Resumed", f"{id.upper()} active."), ephemeral=True)
+        _autodismiss_response(interaction, 10)
 
 
 async def setup(bot: commands.Bot) -> None:

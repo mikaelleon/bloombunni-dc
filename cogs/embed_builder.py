@@ -799,6 +799,25 @@ class EmbedBuilderCog(commands.Cog, name="EmbedBuilderCog"):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
+    async def _embed_id_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        if not interaction.guild:
+            return []
+        rows = await db.list_builder_embeds(interaction.guild.id)
+        needle = current.lower().strip()
+        out: list[app_commands.Choice[str]] = []
+        for r in rows:
+            eid = str(r.get("embed_id") or "")
+            title = str(r.get("title") or "")
+            label = f"{eid} · {title[:60]}" if title else eid
+            if needle and needle not in eid.lower() and needle not in title.lower():
+                continue
+            out.append(app_commands.Choice(name=label[:100], value=eid))
+            if len(out) >= 25:
+                break
+        return out
+
     async def _can_use(self, interaction: discord.Interaction) -> bool:
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
             await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
@@ -893,6 +912,7 @@ class EmbedBuilderCog(commands.Cog, name="EmbedBuilderCog"):
             app_commands.Choice(name="timestamp", value="timestamp"),
         ]
     )
+    @app_commands.autocomplete(id=_embed_id_autocomplete)
     async def edit_cmd(self, interaction: discord.Interaction, id: str, field: str | None = None) -> None:
         if not await self._can_use(interaction):
             return
@@ -928,6 +948,7 @@ class EmbedBuilderCog(commands.Cog, name="EmbedBuilderCog"):
 
     @embed.command(name="show", description="Post embed by ID to channel")
     @app_commands.describe(id="Embed ID like EMB-001", channel="Target channel")
+    @app_commands.autocomplete(id=_embed_id_autocomplete)
     async def show_cmd(self, interaction: discord.Interaction, id: str, channel: discord.TextChannel) -> None:
         if not await self._can_use(interaction):
             return

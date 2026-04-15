@@ -537,6 +537,25 @@ class ButtonBuilderCog(commands.Cog, name="ButtonBuilderCog"):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
+    async def _button_id_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        if not interaction.guild:
+            return []
+        rows = await db.list_builder_buttons(interaction.guild.id)
+        needle = current.lower().strip()
+        out: list[app_commands.Choice[str]] = []
+        for r in rows:
+            bid = str(r.get("button_id") or "")
+            label_txt = str(r.get("label") or "")
+            label = f"{bid} · {label_txt[:60]}" if label_txt else bid
+            if needle and needle not in bid.lower() and needle not in label_txt.lower():
+                continue
+            out.append(app_commands.Choice(name=label[:100], value=bid))
+            if len(out) >= 25:
+                break
+        return out
+
     async def _can_use(self, interaction: discord.Interaction) -> bool:
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
             await interaction.response.send_message("Use this in a server.", ephemeral=True)
@@ -693,6 +712,7 @@ class ButtonBuilderCog(commands.Cog, name="ButtonBuilderCog"):
             app_commands.Choice(name="responses", value="responses"),
         ]
     )
+    @app_commands.autocomplete(id=_button_id_autocomplete)
     async def edit_cmd(self, interaction: discord.Interaction, id: str, field: str | None = None) -> None:
         if not await self._can_use(interaction):
             return
@@ -726,6 +746,7 @@ class ButtonBuilderCog(commands.Cog, name="ButtonBuilderCog"):
 
     @button.command(name="clone", description="Duplicate button to new BTN-XXX")
     @app_commands.describe(id="Source BTN-001")
+    @app_commands.autocomplete(id=_button_id_autocomplete)
     async def clone_cmd(self, interaction: discord.Interaction, id: str) -> None:
         if not await self._can_use(interaction):
             return
@@ -770,6 +791,7 @@ class ButtonBuilderCog(commands.Cog, name="ButtonBuilderCog"):
 
     @button.command(name="post", description="Post button + embed to channel")
     @app_commands.describe(id="BTN-001", channel="Where to post")
+    @app_commands.autocomplete(id=_button_id_autocomplete)
     async def post_cmd(self, interaction: discord.Interaction, id: str, channel: discord.TextChannel) -> None:
         if not await self._can_use(interaction):
             return
