@@ -38,6 +38,8 @@ Planned expansion systems (`plans/`) progress: **0%**
 - [x] Quote calculator and ticket quote integration - **100%**
 - [x] Staff moderation and utility commands (warn, sticky, drop, vouch) - **100%**
 - [x] Embed builder (`/embed`) and button builder (`/button`) for staff — **implemented** (panels that combine embeds + buttons as saved objects are not implemented yet)
+- [x] Autoresponder builder foundation (`/ar`) — **implemented (core)**: builder, message triggers, conditions, cooldown, pause/resume, ID autocomplete
+- [ ] Autoresponder full-spec parity (`autoresponder builder/autoresponder-full-spec.md`) — **in progress**
 - [ ] Remaining polish and optional enhancements from backlog - **20%**
 - [ ] Plan 01: MYO system (`plans/01_MYO_SYSTEM.md`) - **0%**
 - [ ] Plan 02: Batch and slot system (`plans/02_BATCH_SLOT_SYSTEM.md`) - **0%**
@@ -46,6 +48,36 @@ Planned expansion systems (`plans/`) progress: **0%**
 - [ ] Plan 05: Casino minigames (`plans/05_CASINO_MINIGAMES.md`) - **0%**
 - [ ] Plan 06: Collectible system (`plans/06_COLLECTIBLE_SYSTEM.md`) - **0%**
 - [ ] Plan 07: MYO content/config tools (`plans/07_MYO_CONTENT_CONFIG.md`) - **0%**
+
+---
+
+## Builder implementation checklist
+
+### Embed builder checklist (`/embed`)
+
+- [x] Create/edit/list/show/showlist
+- [x] Modal editing and live preview
+- [x] Staff role allow-list (`/embed config staffrole`)
+- [x] ID autocomplete in edit/show commands
+
+### Button builder checklist (`/button`)
+
+- [x] Create/edit/clone/list/post
+- [x] Action modes: assign/remove/toggle role
+- [x] Posted live button callback wiring
+- [x] ID autocomplete in edit/clone/post commands
+
+### Autoresponder builder checklist (`/ar`)
+
+- [x] Create/edit/delete/list/pause/resume
+- [x] Trigger groups + match modes (`exact`, `startswith`, `endswith`, `includes`, `word_boundary`)
+- [x] Conditions editor with role/channel dropdowns + cooldown modal
+- [x] Per-user cooldown and runtime fire handling
+- [x] ID autocomplete in edit/delete/pause/resume
+- [x] Auto-dismiss short confirmation toasts (10s) in conditions and status updates
+- [ ] Full function parity from spec (`{requirearg}`, inventory/currency modifiers, full redirect suite)
+- [ ] Event triggers (join/leave/role/reaction)
+- [ ] Analytics/version history/templates/import-export
 
 ---
 
@@ -254,9 +286,10 @@ If something fails with “missing permissions,” give the bot’s role a highe
 
 - **Who can use it:** Server owner, **Administrator**, or configured **Staff** role.
 - **`/ar create`:** New **`AR-XXX`** draft in interactive builder (trigger + matchmode, response, conditions, notes, variables reference, preview).
-- **`/ar edit`** / **`/ar delete`** / **`/ar list`:** Manage existing ARs by ID.
+- **`/ar edit`** / **`/ar delete`** / **`/ar list`:** Manage existing ARs by ID (ID autocomplete picker available).
 - **`/ar pause`** / **`/ar resume`:** Toggle without deleting.
 - **Runtime behavior:** Active ARs evaluate on each member message and fire first highest-priority match; cooldown is per-user.
+- **Quality-of-life:** Conditions editor updates via dropdowns; short confirmation toasts auto-dismiss after 10 seconds.
 
 ### Planned core systems (unimplemented)
 
@@ -371,5 +404,6 @@ For **Render**, Railway, or similar: run **`python main.py`** as the start comma
 
 - [`docs/README.md`](docs/README.md) — index of extra docs.
 - [`docs/database-reference.md`](docs/database-reference.md) — SQLite tables overview (includes embed/button builder tables).
+- [`autoresponder builder/autoresponder-full-spec.md`](autoresponder%20builder/autoresponder-full-spec.md) — full AR target scope (parity + planned extensions).
 - [`docs/TICKETING.md`](docs/TICKETING.md) — ticket system behavior (may lag behind code; prefer this README + `/config view` for current commands).
 - [`button builder/embed-button-improvements.md`](button%20builder/embed-button-improvements.md) — design notes and future ideas for panels, conditions, analytics (implementation varies; see sections above for what the bot does today).

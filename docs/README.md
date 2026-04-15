@@ -33,7 +33,12 @@ Technical reference for the **Mika Shop** Discord bot (code under `bot/`). Opera
 | [drops.md](drops.md) | `/drop`, `/drophistory`, completion DM |
 | [owner-tools.md](owner-tools.md) | `/purge_bot_dms` |
 
-**Builders (operator summary in project [`README.md`](../README.md)):** **`/embed`** — `cogs/embed_builder.py`, tables `embed_builder_*`. **`/button`** — `cogs/button_builder.py`, tables `button_builder_*`. Shared staff allow-list: **`/embed config staffrole`**. Roadmap doc: [`button builder/embed-button-improvements.md`](../button%20builder/embed-button-improvements.md).
+**Builders (operator summary in project [`README.md`](../README.md)):**  
+**`/embed`** — `cogs/embed_builder.py`, tables `embed_builder_*`  
+**`/button`** — `cogs/button_builder.py`, tables `button_builder_*`  
+**`/ar`** — `cogs/autoresponder_builder.py`, tables `ar_builder_*`  
+Shared staff allow-list for `/embed` + `/button`: **`/embed config staffrole`**.  
+Roadmap docs: [`button builder/embed-button-improvements.md`](../button%20builder/embed-button-improvements.md), [`autoresponder builder/autoresponder-full-spec.md`](../autoresponder%20builder/autoresponder-full-spec.md).
 
 ## Data reference
 

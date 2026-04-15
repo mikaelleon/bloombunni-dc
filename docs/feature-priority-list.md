@@ -249,6 +249,23 @@ Subfeatures by priority:
 
 ---
 
+## Feature 16: Builder Systems (`P1`)
+
+Purpose: reduce slash parameter friction with interactive editing flows.
+
+Subfeatures by priority:
+
+- `P1` `/embed` interactive builder (`create`, `edit`, `list`, `showlist`, `show`)
+- `P1` `/button` interactive builder (`create`, `edit`, `clone`, `list`, `post`)
+- `P1` `/ar` interactive builder (`create`, `edit`, `delete`, `list`, `pause`, `resume`)
+- `P1` ID-based objects with auto-increment IDs (`EMB-XXX`, `BTN-XXX`, `AR-XXX`)
+- `P1` Runtime execution for active autoresponders (message trigger + match modes + cooldown/conditions)
+- `P2` ID autocomplete pickers in edit/post/delete-style commands
+- `P2` Conditions editor UX (dropdown role/channel selectors instead of manual IDs)
+- `P2` Auto-dismiss short ephemeral confirmation toasts (10s) for builder micro-updates
+
+---
+
 ## Suggested Build Order (Simple)
 
 - `Phase 1` (`P0`): Core runtime, DB, setup/config, shop+TOS gate

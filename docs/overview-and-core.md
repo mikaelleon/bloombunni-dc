@@ -17,7 +17,7 @@
 2. **`config.validate_config()`** — ensures token exists.
 3. **Loads extensions** (in order):
 
-   `cogs.owner_tools`, `cogs.embed_builder`, `cogs.button_builder`, `cogs.config_cmd`, `cogs.setup_wizard`, `cogs.quotes`, `cogs.tickets`, `cogs.queue`, `cogs.shop`, `cogs.vouch`, `cogs.warn`, `cogs.sticky`, `cogs.drop`, `cogs.payment`
+   `cogs.owner_tools`, `cogs.embed_builder`, `cogs.button_builder`, `cogs.autoresponder_builder`, `cogs.config_cmd`, `cogs.setup_wizard`, `cogs.quotes`, `cogs.tickets`, `cogs.queue`, `cogs.shop`, `cogs.vouch`, `cogs.warn`, `cogs.sticky`, `cogs.drop`, `cogs.payment`
 
 4. **Slash sync (one scope only):** if **`SYNC_GUILD_ID`** is set → `copy_global_to` → `clear_commands(guild=None)` → **`tree.sync()`** (empty globals on Discord **first**) → **`tree.sync(guild=…)`** (guild commands second). If **`SYNC_GUILD_ID`** is unset → optional **`GUILD_SLASH_PURGE_ID`** runs **`tree.sync(guild=…)`** with an empty payload first (wipes stale guild-scoped commands), then **`tree.sync()`** (global).
 5. **Persistent views** registered with the bot:
@@ -41,7 +41,7 @@
   - **`CommandSignatureMismatch`** → ephemeral embed explaining **`SYNC_GUILD_ID`** / wait for global sync.
   - Other errors → logged; user gets ephemeral **`user_warn("That didn't work", …)`**.
 
-There is **no** `on_message` in `main.py`; message listeners live in cogs (vouch, sticky).
+There is **no** `on_message` in `main.py`; message listeners live in cogs (vouch, sticky, autoresponder).
 
 ## Configuration (`config.py`)
 
