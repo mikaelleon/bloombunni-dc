@@ -65,6 +65,7 @@ Planned expansion systems (`plans/`) progress: **0%**
 - **Server wiring:** Map channels and roles by **picking them in slash commands** (`/setup` wizard or **`/config view`** to audit).
 - **Embeds (staff):** Create and edit server-scoped embeds with IDs like **`EMB-001`** using **`/embed`** — interactive builder, variable placeholders (for example `{user_name}`, `{server_name}`), list/browse, and post to a channel.
 - **Role buttons (staff):** Create interactive role buttons with IDs like **`BTN-001`** using **`/button`** — assign, remove, or toggle a role; optional emoji, color, staff-only notes, and custom ephemeral messages; post to a channel. Access is limited to **server owner**, **Administrators**, and roles allowed via **`/embed config staffrole`** (shared allow-list with the embed builder).
+- **Autoresponders (staff/admin):** Build message-triggered autoresponders with IDs like **`AR-001`** using **`/ar`** — trigger groups, matchmode (`exact`, `startswith`, `endswith`, `includes`, `word_boundary`), response text, cooldown, role/channel conditions, live builder preview, pause/resume.
 
 ---
 
@@ -249,6 +250,14 @@ If something fails with “missing permissions,” give the bot’s role a highe
 - **`/button edit`**, **`/button clone`**, **`/button list`:** Edit or duplicate a button, or list all buttons on the server.
 - **`/button post`:** Post a short info embed and the live button to a text channel. Posted buttons stay wired to the database (clicks use current config after restarts). Users only see **ephemeral** feedback when they click.
 
+### Autoresponder builder (`/ar`)
+
+- **Who can use it:** Server owner, **Administrator**, or configured **Staff** role.
+- **`/ar create`:** New **`AR-XXX`** draft in interactive builder (trigger + matchmode, response, conditions, notes, variables reference, preview).
+- **`/ar edit`** / **`/ar delete`** / **`/ar list`:** Manage existing ARs by ID.
+- **`/ar pause`** / **`/ar resume`:** Toggle without deleting.
+- **Runtime behavior:** Active ARs evaluate on each member message and fire first highest-priority match; cooldown is per-user.
+
 ### Planned core systems (unimplemented)
 
 The following systems are documented in `plans/` and are **not implemented yet**:
@@ -333,6 +342,7 @@ These commands are **not** the same as the general **Staff** role used for ticke
 | **`/embed create`**, **`/embed edit`**, **`/embed list`**, **`/embed showlist`**, **`/embed show`** | Create and manage **`EMB-XXX`** embeds; post to a channel. |
 | **`/embed config staffrole`** | **Owner/admin only** — grant **`/embed`** / **`/button`** access to a role. |
 | **`/button create`**, **`/button edit`**, **`/button clone`**, **`/button list`**, **`/button post`** | Create and manage **`BTN-XXX`** role buttons; post a button to a channel. |
+| **`/ar create`**, **`/ar edit`**, **`/ar delete`**, **`/ar list`**, **`/ar pause`**, **`/ar resume`** | Create and manage **`AR-XXX`** autoresponders with interactive builder and live triggers. |
 
 ---
 
@@ -349,6 +359,7 @@ For **Render**, Railway, or similar: run **`python main.py`** as the start comma
 | **`main.py`** | Starts the bot. |
 | **`cogs/embed_builder.py`** | `/embed` commands and interactive embed builder. |
 | **`cogs/button_builder.py`** | `/button` commands and interactive role-button builder. |
+| **`cogs/autoresponder_builder.py`** | `/ar` commands and runtime message-trigger engine. |
 | **`.env`** | **Bot token only** in the default setup (never commit this). |
 | **`bot.db`** | Local database (orders, tickets, warns, guild settings, embed/button builder rows, etc.). |
 | **`tos.txt`** | Text for the TOS panel. |

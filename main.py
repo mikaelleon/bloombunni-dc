@@ -68,6 +68,7 @@ class MikaBot(commands.Bot):
             "cogs.owner_tools",
             "cogs.embed_builder",
             "cogs.button_builder",
+            "cogs.autoresponder_builder",
             "cogs.config_cmd",
             "cogs.setup_wizard",
             "cogs.quotes",

@@ -457,6 +457,68 @@ async def _ensure_button_builder_schema(db: aiosqlite.Connection) -> None:
     )
 
 
+async def _ensure_autoresponder_schema(db: aiosqlite.Connection) -> None:
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ar_builder_meta (
+            guild_id INTEGER PRIMARY KEY,
+            last_assigned_id INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ar_builder_entries (
+            guild_id INTEGER NOT NULL,
+            ar_id TEXT NOT NULL,
+            created_by INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            last_edited_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'draft',
+            trigger_type TEXT NOT NULL DEFAULT 'message',
+            match_mode TEXT NOT NULL DEFAULT 'exact',
+            triggers_json TEXT NOT NULL DEFAULT '',
+            response_text TEXT,
+            priority INTEGER NOT NULL DEFAULT 100,
+            cooldown_seconds INTEGER NOT NULL DEFAULT 0,
+            required_role_id INTEGER,
+            denied_role_id INTEGER,
+            required_channel_id INTEGER,
+            denied_channel_id INTEGER,
+            fire_count INTEGER NOT NULL DEFAULT 0,
+            last_fired_at TEXT,
+            internal_label TEXT,
+            internal_note TEXT,
+            PRIMARY KEY (guild_id, ar_id)
+        )
+        """
+    )
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ar_builder_user_cooldowns (
+            guild_id INTEGER NOT NULL,
+            ar_id TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            last_fired_ts INTEGER NOT NULL,
+            PRIMARY KEY (guild_id, ar_id, user_id)
+        )
+        """
+    )
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ar_builder_audit (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER NOT NULL,
+            actor_user_id INTEGER NOT NULL,
+            action TEXT NOT NULL,
+            ar_id TEXT NOT NULL,
+            channel_id INTEGER,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+
+
 async def _migration_applied(db: aiosqlite.Connection, version: int) -> bool:
     cur = await db.execute(
         "SELECT 1 FROM schema_migrations WHERE version = ? LIMIT 1",
@@ -687,6 +749,7 @@ async def init_db() -> None:
         await _run_migration(db, 13, "ensure_slow_query_schema", _ensure_slow_query_schema)
         await _run_migration(db, 14, "ensure_embed_builder_schema", _ensure_embed_builder_schema)
         await _run_migration(db, 15, "ensure_button_builder_schema", _ensure_button_builder_schema)
+        await _run_migration(db, 16, "ensure_autoresponder_schema", _ensure_autoresponder_schema)
         await db.commit()
 
 
@@ -2621,5 +2684,174 @@ async def log_button_builder_action(
             VALUES (?, ?, ?, ?, ?, ?)
             """,
             (guild_id, actor_user_id, action[:32], bid.upper(), channel_id, _utc_now()),
+        )
+        await db.commit()
+
+
+# --- Autoresponder builder (AR-XXX) ---
+
+
+async def create_autoresponder(guild_id: int, created_by: int) -> dict[str, Any]:
+    now = _utc_now()
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            "INSERT INTO ar_builder_meta (guild_id, last_assigned_id) VALUES (?, 0) ON CONFLICT(guild_id) DO NOTHING",
+            (guild_id,),
+        )
+        cur = await db.execute(
+            "SELECT last_assigned_id FROM ar_builder_meta WHERE guild_id = ?",
+            (guild_id,),
+        )
+        row = await cur.fetchone()
+        nxt = int(row[0]) + 1 if row else 1
+        ar_id = f"AR-{nxt:03d}"
+        await db.execute(
+            "UPDATE ar_builder_meta SET last_assigned_id = ? WHERE guild_id = ?",
+            (nxt, guild_id),
+        )
+        await db.execute(
+            """
+            INSERT INTO ar_builder_entries (
+                guild_id, ar_id, created_by, created_at, last_edited_at, status,
+                trigger_type, match_mode, triggers_json, response_text, priority, cooldown_seconds
+            ) VALUES (?, ?, ?, ?, ?, 'draft', 'message', 'exact', '', NULL, 100, 0)
+            """,
+            (guild_id, ar_id, created_by, now, now),
+        )
+        await db.commit()
+    return await get_autoresponder(guild_id, ar_id) or {}
+
+
+async def get_autoresponder(guild_id: int, ar_id: str) -> dict[str, Any] | None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM ar_builder_entries WHERE guild_id = ? AND ar_id = ?",
+            (guild_id, ar_id.upper()),
+        )
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+
+async def list_autoresponders(guild_id: int) -> list[dict[str, Any]]:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM ar_builder_entries WHERE guild_id = ? ORDER BY ar_id ASC",
+            (guild_id,),
+        )
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def list_active_autoresponders(guild_id: int) -> list[dict[str, Any]]:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM ar_builder_entries WHERE guild_id = ? AND status = 'active' ORDER BY priority ASC, ar_id ASC",
+            (guild_id,),
+        )
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def patch_autoresponder(guild_id: int, ar_id: str, updates: dict[str, Any]) -> bool:
+    row = await get_autoresponder(guild_id, ar_id)
+    if not row:
+        return False
+    allowed = {
+        "status",
+        "trigger_type",
+        "match_mode",
+        "triggers_json",
+        "response_text",
+        "priority",
+        "cooldown_seconds",
+        "required_role_id",
+        "denied_role_id",
+        "required_channel_id",
+        "denied_channel_id",
+        "internal_label",
+        "internal_note",
+    }
+    fields = {k: v for k, v in updates.items() if k in allowed}
+    if not fields:
+        return True
+    fields["last_edited_at"] = _utc_now()
+    set_sql = ", ".join(f"{k} = ?" for k in fields.keys())
+    vals = list(fields.values()) + [guild_id, ar_id.upper()]
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            f"UPDATE ar_builder_entries SET {set_sql} WHERE guild_id = ? AND ar_id = ?",
+            vals,
+        )
+        await db.commit()
+    return True
+
+
+async def delete_autoresponder(guild_id: int, ar_id: str) -> bool:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            "DELETE FROM ar_builder_user_cooldowns WHERE guild_id = ? AND ar_id = ?",
+            (guild_id, ar_id.upper()),
+        )
+        cur = await db.execute(
+            "DELETE FROM ar_builder_entries WHERE guild_id = ? AND ar_id = ?",
+            (guild_id, ar_id.upper()),
+        )
+        await db.commit()
+        return int(cur.rowcount or 0) > 0
+
+
+async def get_autoresponder_last_fire(guild_id: int, ar_id: str, user_id: int) -> int | None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cur = await db.execute(
+            """
+            SELECT last_fired_ts FROM ar_builder_user_cooldowns
+            WHERE guild_id = ? AND ar_id = ? AND user_id = ?
+            """,
+            (guild_id, ar_id.upper(), user_id),
+        )
+        row = await cur.fetchone()
+        return int(row[0]) if row else None
+
+
+async def bump_autoresponder_fire_count(guild_id: int, ar_id: str, user_id: int) -> None:
+    now = _utc_now()
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """
+            UPDATE ar_builder_entries
+            SET fire_count = fire_count + 1, last_fired_at = ?
+            WHERE guild_id = ? AND ar_id = ?
+            """,
+            (now, guild_id, ar_id.upper()),
+        )
+        await db.execute(
+            """
+            INSERT INTO ar_builder_user_cooldowns (guild_id, ar_id, user_id, last_fired_ts)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(guild_id, ar_id, user_id) DO UPDATE SET last_fired_ts = excluded.last_fired_ts
+            """,
+            (guild_id, ar_id.upper(), user_id, now_ts),
+        )
+        await db.commit()
+
+
+async def log_autoresponder_action(
+    guild_id: int,
+    actor_user_id: int,
+    action: str,
+    ar_id: str,
+    channel_id: int | None = None,
+) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """
+            INSERT INTO ar_builder_audit (guild_id, actor_user_id, action, ar_id, channel_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (guild_id, actor_user_id, action[:32], ar_id.upper(), channel_id, _utc_now()),
         )
         await db.commit()
