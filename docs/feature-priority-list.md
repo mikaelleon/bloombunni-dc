@@ -19,7 +19,7 @@ Subfeatures by priority:
 
 - `P0` Initialize database on startup (`init_db`) and validate required config (`BOT_TOKEN`)
 - `P0` Load all production cogs in fixed startup order
-- `P0` Sync slash command tree globally, with optional fast guild sync via `SYNC_GUILD_ID`
+- `P0` Sync slash command tree in one scope at a time: global by default, or guild-only via `SYNC_GUILD_ID` for fast testing
 - `P0` Register persistent views on boot (`TOSAgreeView`, `PaymentView`, ticket close views, order status views)
 - `P0` Global app-command error handling for permission failures, sync mismatch, and generic runtime errors
 - `P1` Startup rehydration tasks (`refresh_status_message`, `refresh_sticky_cache`)

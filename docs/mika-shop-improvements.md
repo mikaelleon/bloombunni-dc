@@ -34,7 +34,7 @@
 
 #### 1.1 — Full Environment Validation on Startup `P0`
 
-**Problem:** Currently only `BOT_TOKEN` is validated. If any other required variable is missing (e.g. `SYNC_GUILD_ID`, database path), the bot either crashes halfway through startup or runs in a broken state without telling anyone why.
+**Problem:** Currently only `BOT_TOKEN` is required. Optional values (`SYNC_GUILD_ID`, `GUILD_SLASH_PURGE_ID`) can still be malformed, and invalid paths can break startup halfway without a clear summary.
 
 **Improvement:** On boot, before anything else loads, the bot checks every required environment variable and configuration value. If anything is missing or malformed, it logs a clear list of what's wrong and exits immediately with a readable error instead of a Python traceback.
 

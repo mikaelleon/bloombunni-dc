@@ -121,7 +121,20 @@ Planned expansion systems (`plans/`) progress: **0%**
    ```
 
 8. **First run** creates a local database file **`bot.db`**. Do not share it if it contains private data.
-9. **Slash command sync (optional):** See **`.env.example`** for **`SYNC_GUILD_ID`** (guild-only registration) and **`GUILD_SLASH_PURGE_ID`** (one-time wipe of stale guild-scoped commands if you still see duplicate `/` entries after changing sync mode).
+9. **Slash command sync (optional):** See **`.env.example`** for **`SYNC_GUILD_ID`** (guild-only registration for one server) and **`GUILD_SLASH_PURGE_ID`** (one-time cleanup if duplicates remain after changing sync mode).
+
+
+### Slash command duplicate fix checklist
+
+If Discord still shows duplicate `/` commands:
+
+1. **Use one sync mode at a time:**
+   - For single-server testing: set `SYNC_GUILD_ID=<your server id>`
+   - For normal multi-server use: remove `SYNC_GUILD_ID`
+2. **After switching from guild-only to global:** set `GUILD_SLASH_PURGE_ID=<same server id>`, restart once, then remove it and restart again.
+3. Give Discord up to a few minutes to refresh command menus after sync.
+
+This prevents old guild-scoped commands from stacking with global commands in the same server.
 
 ### B. Wire the server (inside Discord)
 
