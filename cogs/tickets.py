@@ -2274,6 +2274,22 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             except (discord.Forbidden, discord.HTTPException):
                 pass
 
+        client_member = (
+            interaction.guild.get_member(int(ticket["client_id"]))
+            if ticket.get("client_id")
+            else None
+        )
+        try:
+            from cogs.loyalty_cards import issue_loyalty_card_for_ticket_closure
+
+            await issue_loyalty_card_for_ticket_closure(
+                interaction.guild,
+                ticket,
+                client_member,
+            )
+        except Exception:
+            pass
+
         if dm_ok:
             await interaction.followup.send(
                 embed=success_embed("Closing", "Transcript sent. Channel deletes in 15 seconds."),

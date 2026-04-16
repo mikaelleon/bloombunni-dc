@@ -76,6 +76,7 @@ class MikaBot(commands.Bot):
             "cogs.queue",
             "cogs.shop",
             "cogs.vouch",
+            "cogs.loyalty_cards",
             "cogs.warn",
             "cogs.sticky",
             "cogs.drop",

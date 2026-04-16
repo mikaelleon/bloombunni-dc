@@ -532,6 +532,51 @@ async def _ensure_autoresponder_trigger_columns(db: aiosqlite.Connection) -> Non
         await db.execute("ALTER TABLE ar_builder_entries ADD COLUMN trigger_emoji TEXT")
 
 
+async def _ensure_loyalty_cards_schema(db: aiosqlite.Connection) -> None:
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS loyalty_card_meta (
+            guild_id INTEGER PRIMARY KEY,
+            next_seq INTEGER NOT NULL DEFAULT 0,
+            recycled_json TEXT NOT NULL DEFAULT '[]'
+        )
+        """
+    )
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS loyalty_card_images (
+            guild_id INTEGER NOT NULL,
+            stamp_index INTEGER NOT NULL,
+            image_url TEXT NOT NULL,
+            PRIMARY KEY (guild_id, stamp_index)
+        )
+        """
+    )
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS loyalty_cards (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER NOT NULL,
+            card_number INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            stamp_count INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'active',
+            message_id INTEGER,
+            thread_id INTEGER,
+            channel_id INTEGER NOT NULL,
+            ticket_channel_id INTEGER,
+            created_at TEXT NOT NULL,
+            void_deadline_ts INTEGER,
+            first_vouch_ts INTEGER,
+            UNIQUE (guild_id, card_number)
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_loyalty_cards_guild_user ON loyalty_cards (guild_id, user_id, status)"
+    )
+
+
 async def _migration_applied(db: aiosqlite.Connection, version: int) -> bool:
     cur = await db.execute(
         "SELECT 1 FROM schema_migrations WHERE version = ? LIMIT 1",
@@ -764,6 +809,7 @@ async def init_db() -> None:
         await _run_migration(db, 15, "ensure_button_builder_schema", _ensure_button_builder_schema)
         await _run_migration(db, 16, "ensure_autoresponder_schema", _ensure_autoresponder_schema)
         await _run_migration(db, 17, "ensure_autoresponder_trigger_columns", _ensure_autoresponder_trigger_columns)
+        await _run_migration(db, 18, "ensure_loyalty_cards_schema", _ensure_loyalty_cards_schema)
         await db.commit()
 
 
@@ -2933,3 +2979,273 @@ async def get_autoresponder_stats(guild_id: int, ar_id: str) -> dict[str, Any] |
         "last_actor_user_id": int(last_fire[0]) if last_fire else None,
         "status": row.get("status"),
     }
+
+
+# --- Loyalty stamp cards (LC-###) ---
+
+
+async def allocate_loyalty_card_number(guild_id: int) -> int:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """
+            INSERT OR IGNORE INTO loyalty_card_meta (guild_id, next_seq, recycled_json)
+            VALUES (?, 0, '[]')
+            """,
+            (guild_id,),
+        )
+        cur = await db.execute(
+            "SELECT next_seq, recycled_json FROM loyalty_card_meta WHERE guild_id = ?",
+            (guild_id,),
+        )
+        row = await cur.fetchone()
+        if not row:
+            return 1
+        nxt = int(row[0])
+        recycled: list[int] = []
+        try:
+            recycled = json.loads(row[1] or "[]")
+        except json.JSONDecodeError:
+            recycled = []
+        if recycled:
+            num = min(recycled)
+            recycled.remove(num)
+            await db.execute(
+                "UPDATE loyalty_card_meta SET recycled_json = ? WHERE guild_id = ?",
+                (json.dumps(recycled), guild_id),
+            )
+            await db.commit()
+            return int(num)
+        num = nxt + 1
+        await db.execute(
+            "UPDATE loyalty_card_meta SET next_seq = ? WHERE guild_id = ?",
+            (num, guild_id),
+        )
+        await db.commit()
+        return int(num)
+
+
+async def recycle_loyalty_card_number(guild_id: int, n: int) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """
+            INSERT OR IGNORE INTO loyalty_card_meta (guild_id, next_seq, recycled_json)
+            VALUES (?, 0, '[]')
+            """,
+            (guild_id,),
+        )
+        cur = await db.execute(
+            "SELECT recycled_json FROM loyalty_card_meta WHERE guild_id = ?",
+            (guild_id,),
+        )
+        row = await cur.fetchone()
+        pool: list[int] = []
+        if row:
+            try:
+                pool = json.loads(row[0] or "[]")
+            except json.JSONDecodeError:
+                pool = []
+        if int(n) not in pool:
+            pool.append(int(n))
+            pool.sort()
+        await db.execute(
+            "UPDATE loyalty_card_meta SET recycled_json = ? WHERE guild_id = ?",
+            (json.dumps(pool), guild_id),
+        )
+        await db.commit()
+
+
+async def upsert_loyalty_card_image(
+    guild_id: int, stamp_index: int, image_url: str
+) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            """
+            INSERT INTO loyalty_card_images (guild_id, stamp_index, image_url)
+            VALUES (?, ?, ?)
+            ON CONFLICT(guild_id, stamp_index) DO UPDATE SET image_url = excluded.image_url
+            """,
+            (guild_id, int(stamp_index), image_url[:2000]),
+        )
+        await db.commit()
+
+
+async def delete_loyalty_card_image(guild_id: int, stamp_index: int) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            "DELETE FROM loyalty_card_images WHERE guild_id = ? AND stamp_index = ?",
+            (guild_id, int(stamp_index)),
+        )
+        await db.commit()
+
+
+async def list_loyalty_card_images(guild_id: int) -> dict[int, str]:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cur = await db.execute(
+            """
+            SELECT stamp_index, image_url FROM loyalty_card_images
+            WHERE guild_id = ? ORDER BY stamp_index ASC
+            """,
+            (guild_id,),
+        )
+        rows = await cur.fetchall()
+        return {int(r[0]): str(r[1]) for r in rows}
+
+
+async def loyalty_card_max_stamp_index(guild_id: int) -> int | None:
+    imgs = await list_loyalty_card_images(guild_id)
+    if not imgs:
+        return None
+    return max(imgs.keys())
+
+
+async def insert_loyalty_card(
+    guild_id: int,
+    *,
+    card_number: int,
+    user_id: int,
+    stamp_count: int,
+    message_id: int | None,
+    thread_id: int | None,
+    channel_id: int,
+    ticket_channel_id: int | None,
+    void_deadline_ts: int | None,
+) -> int:
+    now = _utc_now()
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cur = await db.execute(
+            """
+            INSERT INTO loyalty_cards (
+                guild_id, card_number, user_id, stamp_count, status,
+                message_id, thread_id, channel_id, ticket_channel_id,
+                created_at, void_deadline_ts, first_vouch_ts
+            ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, NULL)
+            """,
+            (
+                guild_id,
+                int(card_number),
+                int(user_id),
+                int(stamp_count),
+                message_id,
+                thread_id,
+                int(channel_id),
+                ticket_channel_id,
+                now,
+                void_deadline_ts,
+            ),
+        )
+        await db.commit()
+        return int(cur.lastrowid)
+
+
+async def patch_loyalty_card(card_pk: int, updates: dict[str, Any]) -> None:
+    allowed = {
+        "stamp_count",
+        "message_id",
+        "thread_id",
+        "void_deadline_ts",
+        "status",
+        "first_vouch_ts",
+    }
+    sets: list[str] = []
+    vals: list[Any] = []
+    for k, v in updates.items():
+        if k not in allowed:
+            continue
+        sets.append(f"{k} = ?")
+        if k == "status":
+            vals.append(str(v)[:24])
+        elif k == "void_deadline_ts":
+            vals.append(v)
+        elif k == "first_vouch_ts":
+            vals.append(int(v) if v is not None else None)
+        else:
+            vals.append(int(v) if v is not None else None)
+    if not sets:
+        return
+    vals.append(int(card_pk))
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            f"UPDATE loyalty_cards SET {', '.join(sets)} WHERE id = ?",
+            tuple(vals),
+        )
+        await db.commit()
+
+
+async def get_loyalty_card_by_id(card_pk: int) -> dict[str, Any] | None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT * FROM loyalty_cards WHERE id = ?", (card_pk,))
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+
+async def get_active_loyalty_cards_for_user(
+    guild_id: int, user_id: int
+) -> list[dict[str, Any]]:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            """
+            SELECT * FROM loyalty_cards
+            WHERE guild_id = ? AND user_id = ? AND status = 'active'
+            ORDER BY id DESC
+            """,
+            (guild_id, int(user_id)),
+        )
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def list_loyalty_cards_active_or_pending_void(guild_id: int) -> list[dict[str, Any]]:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            """
+            SELECT * FROM loyalty_cards
+            WHERE guild_id = ? AND status = 'active'
+            ORDER BY card_number ASC
+            """,
+            (guild_id,),
+        )
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def delete_loyalty_card_row(card_pk: int) -> dict[str, Any] | None:
+    row = await get_loyalty_card_by_id(card_pk)
+    if not row:
+        return None
+    gid = int(row["guild_id"])
+    cnum = int(row["card_number"])
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute("DELETE FROM loyalty_cards WHERE id = ?", (card_pk,))
+        await db.commit()
+    await recycle_loyalty_card_number(gid, cnum)
+    return row
+
+
+async def void_loyalty_card(card_pk: int, status: str = "voided") -> bool:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cur = await db.execute(
+            "UPDATE loyalty_cards SET status = ? WHERE id = ? AND status = 'active'",
+            (status[:24], int(card_pk)),
+        )
+        await db.commit()
+        return int(cur.rowcount or 0) > 0
+
+
+async def list_loyalty_cards_due_void(now_ts: int) -> list[dict[str, Any]]:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            """
+            SELECT * FROM loyalty_cards
+            WHERE status = 'active'
+              AND void_deadline_ts IS NOT NULL
+              AND void_deadline_ts < ?
+              AND stamp_count = 0
+            """,
+            (int(now_ts),),
+        )
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]

@@ -29,6 +29,11 @@ VERIFICATION_CHANNEL = "verification_channel"
 PAYMENT_CHANNEL = "payment_channel"
 WARN_LOG_CHANNEL = "warn_log_channel"
 ERROR_ALERT_CHANNEL = "error_alert_channel"
+# Loyalty stamp cards (ticket close → channel post + thread; vouch advances stamp)
+LOYALTY_CARD_CHANNEL = "loyalty_card_channel"
+LOYALTY_CARD_CATEGORY = "loyalty_card_category"
+LOYALTY_CARD_AUTO_CREATE = "loyalty_card_auto_create"
+LOYALTY_CARD_VOID_HOURS = "loyalty_card_void_hours"
 
 CHANNEL_SLOT_CHOICES: list[tuple[str, str]] = [
     ("Queue (order list)", QUEUE_CHANNEL),
@@ -42,9 +47,11 @@ CHANNEL_SLOT_CHOICES: list[tuple[str, str]] = [
     ("Payment panel", PAYMENT_CHANNEL),
     ("Warn log", WARN_LOG_CHANNEL),
     ("Bot error alerts", ERROR_ALERT_CHANNEL),
+    ("Loyalty cards (stamp posts)", LOYALTY_CARD_CHANNEL),
 ]
 
 CATEGORY_SLOT_CHOICES: list[tuple[str, str]] = [
+    ("Loyalty cards (auto-create category)", LOYALTY_CARD_CATEGORY),
     ("New tickets", TICKET_CATEGORY),
     ("Noted orders", NOTED_CATEGORY),
     ("Processing", PROCESSING_CATEGORY),
@@ -86,6 +93,8 @@ PAYMENT_ALL_KEYS: tuple[str, ...] = (
 
 # String settings (guild_string_settings)
 ORDER_ID_PREFIX = "order_id_prefix"
+LOYALTY_CARD_THREAD_NAME = "loyalty_card_thread_name"
+LOYALTY_CARD_MESSAGE_TEMPLATE = "loyalty_card_message_template"
 # JSON array of extra guild-specific warn reason strings (merged with bot defaults in /warn autocomplete)
 WARN_REASON_TEMPLATES_JSON = "warn_reason_templates_json"
 

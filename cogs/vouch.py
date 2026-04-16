@@ -58,6 +58,12 @@ class VouchCog(commands.Cog, name="VouchCog"):
         except discord.Forbidden:
             return
         await db.insert_vouch(message.author.id, None, message.content[:2000])
+        try:
+            from cogs.loyalty_cards import apply_vouch_to_loyalty_card
+
+            await apply_vouch_to_loyalty_card(message.guild, message.author.id)
+        except Exception:
+            pass
         await message.reply(
             f"✅ Thanks for vouching, {message.author.mention}! Your PlsVouch role has been removed."
         )
@@ -74,6 +80,12 @@ class VouchCog(commands.Cog, name="VouchCog"):
     ) -> None:
         await interaction.response.defer(ephemeral=True)
         await db.insert_vouch(member.id, order_id, message)
+        try:
+            from cogs.loyalty_cards import apply_vouch_to_loyalty_card
+
+            await apply_vouch_to_loyalty_card(interaction.guild, member.id)
+        except Exception:
+            pass
         pvr = await db.get_guild_setting(interaction.guild.id, gk.PLEASE_VOUCH_ROLE)
         role = interaction.guild.get_role(int(pvr)) if pvr else None
         if role and role in member.roles:
