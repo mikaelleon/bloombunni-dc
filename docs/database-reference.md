@@ -41,6 +41,9 @@
 | **`ar_builder_entries`** | Saved autoresponder configs (`/ar`): trigger type/match mode, trigger group text, response, status, priority, cooldown, role/channel conditions, counters. |
 | **`ar_builder_user_cooldowns`** | Per-user last-fire timestamps for autoresponder cooldown checks. |
 | **`ar_builder_audit`** | Optional audit lines for autoresponder actions and fires. |
+| **`loyalty_card_meta`** | Per-guild loyalty card counter + recycled card-number pool. |
+| **`loyalty_card_images`** | Stamp image states per guild (`stamp_index` => `image_url`). |
+| **`loyalty_cards`** | Active/voided loyalty card rows (`LC-XXX`): user, stamps, card message/thread ids, void timers. |
 
 ## Key helpers (non-exhaustive)
 
@@ -52,5 +55,8 @@
 - **`create_builder_button` / `get_builder_button` / `list_builder_buttons` / `patch_builder_button` / `delete_builder_button` / `clone_builder_button`** — `/button` storage.
 - **`create_autoresponder` / `get_autoresponder` / `list_autoresponders` / `list_active_autoresponders` / `patch_autoresponder` / `delete_autoresponder`** — `/ar` storage.
 - **`get_autoresponder_last_fire` / `bump_autoresponder_fire_count`** — runtime cooldown + fire counters.
+- **`allocate_loyalty_card_number` / `recycle_loyalty_card_number`** — loyalty card ID lifecycle.
+- **`upsert_loyalty_card_image` / `list_loyalty_card_images`** — stamp state image config.
+- **`insert_loyalty_card` / `patch_loyalty_card` / `get_active_loyalty_cards_for_user` / `delete_loyalty_card_row`** — loyalty card runtime storage/update.
 
 For command-level behavior, see the project [`README.md`](../README.md) and the feature docs linked from [README.md](README.md).

@@ -532,6 +532,13 @@ async def _ensure_autoresponder_trigger_columns(db: aiosqlite.Connection) -> Non
         await db.execute("ALTER TABLE ar_builder_entries ADD COLUMN trigger_emoji TEXT")
 
 
+async def _ensure_ticket_deleted_at_column(db: aiosqlite.Connection) -> None:
+    cur = await db.execute("PRAGMA table_info(tickets)")
+    cols = {row[1] for row in await cur.fetchall()}
+    if "deleted_at" not in cols:
+        await db.execute("ALTER TABLE tickets ADD COLUMN deleted_at TEXT")
+
+
 async def _ensure_loyalty_cards_schema(db: aiosqlite.Connection) -> None:
     await db.execute(
         """
@@ -810,6 +817,7 @@ async def init_db() -> None:
         await _run_migration(db, 16, "ensure_autoresponder_schema", _ensure_autoresponder_schema)
         await _run_migration(db, 17, "ensure_autoresponder_trigger_columns", _ensure_autoresponder_trigger_columns)
         await _run_migration(db, 18, "ensure_loyalty_cards_schema", _ensure_loyalty_cards_schema)
+        await _run_migration(db, 19, "ensure_ticket_deleted_at_column", _ensure_ticket_deleted_at_column)
         await db.commit()
 
 
@@ -1313,15 +1321,29 @@ async def get_open_ticket_by_user(
     """Open ticket for panel flow — excludes warn-appeal-only tickets so appeals don't block commissions."""
     async with aiosqlite.connect(DATABASE_PATH) as db:
         db.row_factory = aiosqlite.Row
-        cur = await db.execute(
-            """
-            SELECT * FROM tickets
-            WHERE client_id = ? AND guild_id = ? AND closed_at IS NULL AND deleted_at IS NULL
-            AND IFNULL(button_id, '') != 'warn_appeal'
-            ORDER BY opened_at DESC LIMIT 1
-            """,
-            (client_id, guild_id),
-        )
+        try:
+            cur = await db.execute(
+                """
+                SELECT * FROM tickets
+                WHERE client_id = ? AND guild_id = ? AND closed_at IS NULL AND deleted_at IS NULL
+                AND IFNULL(button_id, '') != 'warn_appeal'
+                ORDER BY opened_at DESC LIMIT 1
+                """,
+                (client_id, guild_id),
+            )
+        except aiosqlite.OperationalError as e:
+            # Backward-safe query for legacy DBs before deleted_at was added.
+            if "no such column: deleted_at" not in str(e):
+                raise
+            cur = await db.execute(
+                """
+                SELECT * FROM tickets
+                WHERE client_id = ? AND guild_id = ? AND closed_at IS NULL
+                AND IFNULL(button_id, '') != 'warn_appeal'
+                ORDER BY opened_at DESC LIMIT 1
+                """,
+                (client_id, guild_id),
+            )
         row = await cur.fetchone()
         return dict(row) if row else None
 

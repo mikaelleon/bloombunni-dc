@@ -7,6 +7,7 @@ When a message is sent in the configured **`VOUCHES_CHANNEL`**:
 - Author must have the **`PLEASE_VOUCH_ROLE`** role.
 - Role is **removed** (`reason="Vouched"`).
 - Row inserted: **`insert_vouch(user_id, None, message[:2000])`** (no order id).
+- If user has active loyalty stamp card, card stamp/image is advanced by runtime hook (`apply_vouch_to_loyalty_card`).
 - Public reply (not embed):  
   **`✅ Thanks for vouching, {mention}! Your PlsVouch role has been removed.`**
 
@@ -17,6 +18,7 @@ Bots and DMs are ignored.
 Parameters: **`member`**, **`order_id`**, **`message`**.
 
 - Inserts vouch with order id.
+- If member has active loyalty stamp card, card stamp/image is advanced by runtime hook.
 - Tries to **remove** PlsVouch from member; if not present, odd path tries add+remove (to clear role state).
 - If **`VOUCHES_CHANNEL`** is set, posts embed:
 

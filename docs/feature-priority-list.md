@@ -159,6 +159,11 @@ Subfeatures by priority:
 - `P2` `/loyaltytop` leaderboard
 - `P2` Completion DM nudge flow (from queue completion path)
 - `P3` Milestone-based reward messaging (hard-coded milestone map)
+- `P1` Loyalty stamp card issuance on ticket close (`LC-XXX` auto ID + thread post)
+- `P1` Vouch-driven stamp-state image progression for active cards
+- `P1` Configurable loyalty card channel with optional auto-create behavior
+- `P1` Configurable void timer (first-vouch deadline) and auto-void cleanup loop
+- `P1` Card cleanup on member leave and manual remove/abandon commands
 
 ---
 
@@ -256,10 +261,13 @@ Purpose: reduce slash parameter friction with interactive editing flows.
 Subfeatures by priority:
 
 - `P1` `/embed` interactive builder (`create`, `edit`, `list`, `showlist`, `show`)
+- `P1` `/embed importfile` (`.md` / `.json`) for fast embed seeding and updates
 - `P1` `/button` interactive builder (`create`, `edit`, `clone`, `list`, `post`)
 - `P1` `/ar` interactive builder (`create`, `edit`, `delete`, `list`, `pause`, `resume`)
+- `P1` `/ar` expanded ops (`showlist`, `search`, `stats`, `export`, `import`, `setembed`)
 - `P1` ID-based objects with auto-increment IDs (`EMB-XXX`, `BTN-XXX`, `AR-XXX`)
 - `P1` Runtime execution for active autoresponders (message trigger + match modes + cooldown/conditions)
+- `P1` Runtime event triggers for autoresponders (member join/leave and role-assigned)
 - `P2` ID autocomplete pickers in edit/post/delete-style commands
 - `P2` Conditions editor UX (dropdown role/channel selectors instead of manual IDs)
 - `P2` Auto-dismiss short ephemeral confirmation toasts (10s) for builder micro-updates

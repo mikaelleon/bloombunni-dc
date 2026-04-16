@@ -31,6 +31,7 @@ Explicit registration: **`handler`**, **`buyer`**, **`amount`**, **`item`**, **`
 - Only **staff role** may use it.
 - **Processing:** updates DB, rewrites queue embed, renames ticket toward **`processing_{slug}.{n}`**, sends **`processing_message`** template in ticket.
 - **Completed:** marks **Done**, rewrites queue embed, moves channel to **Done** category (`done_{slug}.{n}`), sends **`completed_message`**, adds **Please vouch** role, **`increment_loyalty`**, optional **milestone DM** (`LOYALTY_MILESTONES`: 5 / 10 / 20 orders), then **`send_completion_delivery_dm`** from **drop** cog.
+- **Ticket close follow-up:** separate close pipeline now can issue loyalty stamp card posts/threads in configured loyalty card channel (`cogs/loyalty_cards.py`).
 
 ## Template commands
 
@@ -51,6 +52,15 @@ Explicit registration: **`handler`**, **`buyer`**, **`amount`**, **`item`**, **`
 | **`/loyaltytop`** | Top **10** from **`loyalty`** table. |
 
 Milestone rewards are **hard-coded** in `LOYALTY_MILESTONES` (e.g. 5 → “10% discount on next order”).
+
+## Loyalty stamp cards (`/loyalty_card`)
+
+- Trigger source: when ticket is closed, bot can post `LC-XXX` card message with image state `0` and create per-card thread.
+- Stamp source: when user completes vouch (`vouches` channel listener or `/vouch`), active card image/message updates to next stamp state.
+- Image states are owner/admin configurable (`stamp_index` 0..N).
+- Channel behavior: owner/admin can set channel manually, or enable auto-create.
+- Void behavior: optional first-vouch timer (`voidhours`); if expired with 0 stamps, card is voided/removed.
+- Lifecycle: cards removed on member leave or manual remove/abandon command; LC number recycled for future allocation.
 
 ## Other
 

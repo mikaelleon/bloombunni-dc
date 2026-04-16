@@ -37,6 +37,7 @@ Technical reference for the **Mika Shop** Discord bot (code under `bot/`). Opera
 **`/embed`** — `cogs/embed_builder.py`, tables `embed_builder_*`  
 **`/button`** — `cogs/button_builder.py`, tables `button_builder_*`  
 **`/ar`** — `cogs/autoresponder_builder.py`, tables `ar_builder_*`  
+**`/loyalty_card`** — `cogs/loyalty_cards.py`, tables `loyalty_card_*`  
 Shared staff allow-list for `/embed` + `/button`: **`/embed config staffrole`**.  
 Roadmap docs: [`button builder/embed-button-improvements.md`](../button%20builder/embed-button-improvements.md), [`autoresponder builder/autoresponder-full-spec.md`](../autoresponder%20builder/autoresponder-full-spec.md).
 

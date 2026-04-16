@@ -29,7 +29,7 @@ A Discord bot for running a **small art commission shop** in your server: agree 
 
 ## Current progress
 
-Overall core bot progress: **84%**
+Overall core bot progress: **88%**
 Planned expansion systems (`plans/`) progress: **0%**
 
 - [x] Core ticketing flow (panel, open, close, transcript) - **100%**
@@ -42,6 +42,8 @@ Planned expansion systems (`plans/`) progress: **0%**
 - [x] ID autocomplete rollout for edit/post/delete-style commands across builders (`/embed`, `/button`, `/ar`)
 - [x] Conditions editor UX upgrade (role/channel dropdown selectors; no developer mode IDs needed)
 - [x] Ephemeral confirmation auto-dismiss (10s) for `/ar` micro-updates and status actions
+- [x] Embed file import (`/embed importfile`) from `.md` / `.json` to quickly seed or update embeds
+- [x] Loyalty stamp card system (`/loyalty_card`) with ticket-close issue, vouch-based stamp progression, and card channel/thread posting
 - [ ] Autoresponder full-spec parity (`autoresponder builder/autoresponder-full-spec.md`) — **in progress**
 - [ ] Remaining polish and optional enhancements from backlog - **20%**
 - [ ] Plan 01: MYO system (`plans/01_MYO_SYSTEM.md`) - **0%**
@@ -62,6 +64,7 @@ Planned expansion systems (`plans/`) progress: **0%**
 - [x] Modal editing and live preview
 - [x] Staff role allow-list (`/embed config staffrole`)
 - [x] ID autocomplete in edit/show commands
+- [x] File import for embed fields (`/embed importfile` from attachment or repo-relative path)
 - [ ] Full panel-builder parity from spec (`button builder/embed-button-improvements.md`)
 
 ### Button builder checklist (`/button`)
@@ -80,11 +83,26 @@ Planned expansion systems (`plans/`) progress: **0%**
 - [x] Conditions update toasts auto-dismiss in 10s
 - [x] Per-user cooldown and runtime fire handling
 - [x] ID autocomplete in edit/delete/pause/resume
+- [x] Search/showlist/stats and JSON export/import commands
+- [x] Event trigger runtime for member join/leave and role-assigned
+- [x] Trigger-field upgrade (`trigger_type`, `priority`, `trigger_role_id`) in trigger modal
+- [x] Quick embed-link helper (`/ar setembed`)
 - [x] Auto-dismiss short confirmation toasts (10s) in conditions and status updates
 - [ ] Full function parity from spec (`{requirearg}`, inventory/currency modifiers, full redirect suite)
-- [ ] Event triggers (join/leave/role/reaction)
-- [ ] Analytics/version history/templates/import-export
+- [ ] Event trigger parity remainder (reaction add/remove and message/channel scoped variants)
+- [ ] Analytics/version history/templates
 - [ ] Chain flows and panel/template integrations
+
+### Loyalty card system checklist (`/loyalty_card`)
+
+- [x] Configurable loyalty card channel + optional auto-create
+- [x] Configurable stamp-state images (`0..N`)
+- [x] Ticket-close issuance: post card message + thread with auto-increment `LC-XXX` ID
+- [x] Vouch-driven stamp progression (message image updates to current stamp state)
+- [x] Auto-void timer for non-vouched cards (`voidhours`)
+- [x] Owner/admin showlist and staff-facing maintenance commands
+- [x] Card cleanup on member leave and manual delete
+- [ ] Advanced reward routing and milestone automation
 
 ---
 
@@ -96,15 +114,15 @@ Planned expansion systems (`plans/`) progress: **0%**
 - **Orders:** Register orders from a ticket with **`/queue`**, or confirm payment with **`/payment confirm`** (same queue pipeline when no order exists yet). Show them on a **queue channel**, move ticket channels through **Noted → Processing → Done** stages, and use **templates** for wording.
 - **Payments:** A panel with buttons for GCash, PayPal, and Ko-fi (each server sets copy and URLs with **`/config payment`** …). Tickets can also show an **awaiting payment** embed with amounts due.
 - **Commission quotes:** Staff maintain **base prices** and add-ons in the database; anyone can run **`/quote calculator`**; staff can **`/quote recalculate`** inside a ticket to re-post an updated quote.
-- **Loyalty:** Track completed orders per client and show milestones.
+- **Loyalty:** Track completed orders per client (`/loyalty`, `/loyaltytop`) and run loyalty stamp cards (`/loyalty_card`) that post on ticket close, create per-card threads, and progress image state when a vouch is completed.
 - **Vouches:** Dedicated vouch channel behavior and manual vouch logging.
 - **Delivery:** Staff can send a “delivery” DM with a link; history can be listed.
 - **Moderation:** Warn members, DM a notice, optional auto-ban after a set number of warns, warn log channel.
 - **Sticky messages:** Keep a chosen embed reposted at the bottom of a channel.
 - **Server wiring:** Map channels and roles by **picking them in slash commands** (`/setup` wizard or **`/config view`** to audit).
-- **Embeds (staff):** Create and edit server-scoped embeds with IDs like **`EMB-001`** using **`/embed`** — interactive builder, variable placeholders (for example `{user_name}`, `{server_name}`), list/browse, and post to a channel.
+- **Embeds (staff):** Create and edit server-scoped embeds with IDs like **`EMB-001`** using **`/embed`** — interactive builder, variable placeholders (for example `{user_name}`, `{server_name}`), list/browse, post to a channel, and file import from `.md` / `.json`.
 - **Role buttons (staff):** Create interactive role buttons with IDs like **`BTN-001`** using **`/button`** — assign, remove, or toggle a role; optional emoji, color, staff-only notes, and custom ephemeral messages; post to a channel. Access is limited to **server owner**, **Administrators**, and roles allowed via **`/embed config staffrole`** (shared allow-list with the embed builder).
-- **Autoresponders (staff/admin):** Build message-triggered autoresponders with IDs like **`AR-001`** using **`/ar`** — trigger groups, matchmode (`exact`, `startswith`, `endswith`, `includes`, `word_boundary`), response text, cooldown, role/channel conditions, live builder preview, pause/resume.
+- **Autoresponders (staff/admin):** Build autoresponders with IDs like **`AR-001`** using **`/ar`** — message triggers plus join/leave/role-assigned events, trigger groups + matchmode, response text, cooldown, role/channel conditions, live builder preview, pause/resume, search/stats, and JSON import/export.
 
 ---
 
@@ -280,6 +298,7 @@ If something fails with “missing permissions,” give the bot’s role a highe
 - **`/embed edit`:** Reopens the builder for an existing ID; optional `field` shortcut for a single field.
 - **`/embed list`** / **`/embed showlist`:** List IDs or browse with previews.
 - **`/embed show`:** Post a resolved embed (variables filled using the user who runs the command) to a chosen text channel.
+- **`/embed importfile`:** Import embed fields from uploaded `.md` / `.json` or repo-relative file path, then preview updated embed.
 - **`/embed config staffrole`:** Add or remove roles that may use **`/embed`** and **`/button`** (owner/admin only).
 
 ### Button builder (`/button`)
@@ -293,10 +312,22 @@ If something fails with “missing permissions,” give the bot’s role a highe
 
 - **Who can use it:** Server owner, **Administrator**, or configured **Staff** role.
 - **`/ar create`:** New **`AR-XXX`** draft in interactive builder (trigger + matchmode, response, conditions, notes, variables reference, preview).
-- **`/ar edit`** / **`/ar delete`** / **`/ar list`:** Manage existing ARs by ID (ID autocomplete picker available).
+- **`/ar edit`** / **`/ar delete`** / **`/ar list`** / **`/ar showlist`** / **`/ar search`:** Manage and browse ARs by ID/content (ID autocomplete picker available).
 - **`/ar pause`** / **`/ar resume`:** Toggle without deleting.
-- **Runtime behavior:** Active ARs evaluate on each member message and fire first highest-priority match; cooldown is per-user.
+- **`/ar stats`** / **`/ar export`** / **`/ar import`:** Runtime stats and JSON backup/restore commands.
+- **`/ar setembed`:** Link AR response to existing embed builder ID quickly.
+- **Runtime behavior:** Active ARs evaluate message triggers and configured event triggers (member join/leave/role-assigned), then fire first highest-priority match; cooldown is per-user.
 - **Quality-of-life:** Conditions editor updates via dropdowns; short confirmation toasts auto-dismiss after 10 seconds.
+
+### Loyalty card system (`/loyalty_card`)
+
+- **Who can use setup commands:** Server owner or administrator.
+- **`/loyalty_card channel`** / **`/loyalty_card autocreate`** / **`/loyalty_card createchannel`:** Configure or auto-create loyalty card destination channel.
+- **`/loyalty_card setimage`** / **`/loyalty_card images`:** Configure image states (`0 = empty`, `1 = one stamp`, ...).
+- **`/loyalty_card voidhours`:** Optional timer requiring first vouch before card auto-voids.
+- **`/loyalty_card showlist`:** View active cards and stamp counts.
+- **`/loyalty_card abandon`** / **`/loyalty_card remove`:** Delete own card or owner/admin remove a user card.
+- **Automatic behavior:** Ticket close issues a new `LC-XXX` card post and thread; vouch completion updates card image/message to next stamp state.
 
 ### Planned core systems (unimplemented)
 
@@ -370,6 +401,7 @@ Use **`/setup`** for the interactive wizard, or audit settings with **`/config v
 | **`/config view`** | Lists channels, roles, payment fields, and quote row count. |
 | **`/config reset`** | Clears a configuration group (with confirmation). |
 | **`/config payment gcash_details`** (and **`paypal_link`**, **`kofi_link`**, **`gcash_qr`**, **`paypal_qr`**) | Set payment copy and URLs for **this server**. |
+| **`/loyalty_card`** setup commands (`channel`, `autocreate`, `createchannel`, `setimage`, `voidhours`, `showlist`, `remove`) | Configure and manage loyalty stamp cards. |
 
 ---
 
@@ -379,10 +411,10 @@ These commands are **not** the same as the general **Staff** role used for ticke
 
 | Command | What it does |
 |--------|----------------|
-| **`/embed create`**, **`/embed edit`**, **`/embed list`**, **`/embed showlist`**, **`/embed show`** | Create and manage **`EMB-XXX`** embeds; post to a channel. |
+| **`/embed create`**, **`/embed edit`**, **`/embed list`**, **`/embed showlist`**, **`/embed show`**, **`/embed importfile`** | Create and manage **`EMB-XXX`** embeds; post to a channel; import from `.md`/`.json`. |
 | **`/embed config staffrole`** | **Owner/admin only** — grant **`/embed`** / **`/button`** access to a role. |
 | **`/button create`**, **`/button edit`**, **`/button clone`**, **`/button list`**, **`/button post`** | Create and manage **`BTN-XXX`** role buttons; post a button to a channel. |
-| **`/ar create`**, **`/ar edit`**, **`/ar delete`**, **`/ar list`**, **`/ar pause`**, **`/ar resume`** | Create and manage **`AR-XXX`** autoresponders with interactive builder and live triggers. |
+| **`/ar create`**, **`/ar edit`**, **`/ar delete`**, **`/ar list`**, **`/ar showlist`**, **`/ar search`**, **`/ar pause`**, **`/ar resume`**, **`/ar stats`**, **`/ar export`**, **`/ar import`**, **`/ar setembed`** | Create and manage **`AR-XXX`** autoresponders with interactive builder and live triggers/events. |
 
 ---
 
@@ -400,8 +432,9 @@ For **Render**, Railway, or similar: run **`python main.py`** as the start comma
 | **`cogs/embed_builder.py`** | `/embed` commands and interactive embed builder. |
 | **`cogs/button_builder.py`** | `/button` commands and interactive role-button builder. |
 | **`cogs/autoresponder_builder.py`** | `/ar` commands and runtime message-trigger engine. |
+| **`cogs/loyalty_cards.py`** | `/loyalty_card` commands and loyalty stamp-card runtime updates. |
 | **`.env`** | **Bot token only** in the default setup (never commit this). |
-| **`bot.db`** | Local database (orders, tickets, warns, guild settings, embed/button/autoresponder builder rows, etc.). |
+| **`bot.db`** | Local database (orders, tickets, warns, guild settings, embed/button/autoresponder/loyalty-card rows, etc.). |
 | **`tos.txt`** | Text for the TOS panel. |
 | **`templates.json`** | Default wording for queue/ticket messages (staff can override in the database). |
 
