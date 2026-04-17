@@ -384,9 +384,12 @@ class RolesStepView(discord.ui.View):
             ("**Boostie** role (quote discount)", gk.BOOSTIE_ROLE),
             ("**Reseller** role", gk.RESELLER_ROLE),
             ("**Please vouch** role", gk.PLEASE_VOUCH_ROLE),
+            ("**Feedback pending** role", gk.FEEDBACK_PENDING_ROLE),
+            ("**Review reward** role", gk.REVIEW_REWARD_ROLE),
         ]
         ch_steps = [
             ("**Vouches** channel", gk.VOUCHES_CHANNEL),
+            ("**Feedback** channel", gk.FEEDBACK_CHANNEL),
             ("**Warn log** channel", gk.WARN_LOG_CHANNEL),
         ]
         if step < len(role_steps):

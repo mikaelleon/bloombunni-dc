@@ -1121,6 +1121,38 @@ async def get_order(order_id: str) -> dict[str, Any] | None:
     return out
 
 
+async def list_orders_for_client(client_id: int, limit: int = 25) -> list[dict[str, Any]]:
+    t0 = time.perf_counter()
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        try:
+            cur = await db.execute(
+                """
+                SELECT * FROM orders
+                WHERE client_id = ? AND deleted_at IS NULL
+                ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC
+                LIMIT ?
+                """,
+                (int(client_id), int(limit)),
+            )
+        except aiosqlite.OperationalError as e:
+            if "no such column: deleted_at" not in str(e):
+                raise
+            cur = await db.execute(
+                """
+                SELECT * FROM orders
+                WHERE client_id = ?
+                ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC
+                LIMIT ?
+                """,
+                (int(client_id), int(limit)),
+            )
+        rows = await cur.fetchall()
+        out = [dict(r) for r in rows]
+    await _record_slow_query("list_orders_for_client", (time.perf_counter() - t0) * 1000.0)
+    return out
+
+
 async def update_order_status(order_id: str, status: str) -> None:
     now = _utc_now()
     async with aiosqlite.connect(DATABASE_PATH) as db:
@@ -1202,10 +1234,17 @@ _TICKET_UPDATEABLE: frozenset[str] = frozenset(
 async def update_ticket_fields(channel_id: int, **fields: Any) -> None:
     if not fields:
         return
+    existing_cols: set[str] = set()
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cur = await db.execute("PRAGMA table_info(tickets)")
+        existing_cols = {str(r[1]) for r in await cur.fetchall()}
     sets: list[str] = []
     vals: list[Any] = []
     for k, v in fields.items():
         if k not in _TICKET_UPDATEABLE:
+            continue
+        if k not in existing_cols:
+            # Backward-safe: older local DB may miss newer ticket columns.
             continue
         if k == "answers" and isinstance(v, dict):
             v = json.dumps(v, ensure_ascii=False)
@@ -1266,6 +1305,10 @@ async def insert_ticket_open(
     char_count_key: str | None = None,
     rush_addon: int = 0,
     ticket_status: str | None = None,
+    quote_expires_at: str | None = None,
+    quote_approved: int | None = None,
+    payment_status: str | None = None,
+    close_approved_by_client: int | None = None,
 ) -> None:
     now = _utc_now()
     ans_json = json.dumps(answers, ensure_ascii=False) if answers is not None else None
@@ -1297,6 +1340,14 @@ async def insert_ticket_open(
     extra["rush_addon"] = rush_addon
     if ticket_status is not None:
         extra["ticket_status"] = ticket_status
+    if quote_expires_at is not None:
+        extra["quote_expires_at"] = quote_expires_at
+    if quote_approved is not None:
+        extra["quote_approved"] = int(quote_approved)
+    if payment_status is not None:
+        extra["payment_status"] = payment_status
+    if close_approved_by_client is not None:
+        extra["close_approved_by_client"] = int(close_approved_by_client)
     if extra:
         await update_ticket_fields(channel_id, **extra)
 
@@ -1311,6 +1362,27 @@ async def update_ticket_order(
             WHERE channel_id = ?
             """,
             (order_id, order_number, channel_id),
+        )
+        await db.commit()
+
+
+async def force_mark_ticket_close_approved(channel_id: int, approved_at_iso: str) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cur = await db.execute("PRAGMA table_info(tickets)")
+        cols = {str(r[1]) for r in await cur.fetchall()}
+        if "close_approved_by_client" not in cols:
+            await db.execute(
+                "ALTER TABLE tickets ADD COLUMN close_approved_by_client INTEGER DEFAULT 0"
+            )
+        if "close_approved_at" not in cols:
+            await db.execute("ALTER TABLE tickets ADD COLUMN close_approved_at TEXT")
+        await db.execute(
+            """
+            UPDATE tickets
+            SET close_approved_by_client = 1, close_approved_at = ?
+            WHERE channel_id = ?
+            """,
+            (approved_at_iso, channel_id),
         )
         await db.commit()
 

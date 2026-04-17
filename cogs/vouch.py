@@ -40,6 +40,33 @@ class VouchCog(commands.Cog, name="VouchCog"):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
+    async def _order_id_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        # Prefer selected member from slash form; fallback to no suggestions.
+        member = getattr(interaction.namespace, "member", None)
+        if not isinstance(member, discord.Member):
+            return []
+        rows = await db.list_orders_for_client(member.id, limit=50)
+        needle = str(current or "").strip().lower()
+        out: list[app_commands.Choice[str]] = []
+        for r in rows:
+            oid = str(r.get("order_id") or "")
+            if not oid:
+                continue
+            status = str(r.get("status") or "unknown")
+            item = str(r.get("item") or "")
+            mop = str(r.get("mop") or "")
+            price = str(r.get("price") or "")
+            label = f"{oid} · {status} · {item[:26]} · {price[:10]} {mop[:10]}".strip()
+            hay = f"{oid} {status} {item} {mop} {price}".lower()
+            if needle and needle not in hay:
+                continue
+            out.append(app_commands.Choice(name=label[:100], value=oid))
+            if len(out) >= 25:
+                break
+        return out
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
         if message.author.bot or not message.guild:
@@ -70,6 +97,7 @@ class VouchCog(commands.Cog, name="VouchCog"):
 
     @app_commands.command(name="vouch", description="Manually log a vouch (staff)")
     @app_commands.describe(member="Client", order_id="Related order ID", message="Vouch text")
+    @app_commands.autocomplete(order_id=_order_id_autocomplete)
     @is_staff()
     async def vouch_cmd(
         self,

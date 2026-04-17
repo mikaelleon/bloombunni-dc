@@ -27,29 +27,33 @@ class TOSAgreeView(discord.ui.View):
         custom_id="tos_agree",
     )
     async def agree(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        try:
+            await interaction.response.defer(ephemeral=True)
+        except discord.HTTPException:
+            return
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=user_hint("Use this in a server", "Open the TOS panel from inside your Discord server."), ephemeral=True
             )
             return
         role = await get_role(interaction.guild, gk.TOS_AGREED_ROLE)
         if role is None:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=user_hint("TOS role not set", "Ask an admin to map **TOS agreed role** in **`/setup`** or staff tools."), ephemeral=True
             )
             return
         if role in interaction.user.roles:
-            await interaction.response.send_message("You've already agreed.", ephemeral=True)
+            await interaction.followup.send("You've already agreed.", ephemeral=True)
             return
         try:
             await interaction.user.add_roles(role, reason="TOS agreement")
         except discord.Forbidden:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=user_warn("Can’t assign role", "The bot needs **Manage Roles** above the TOS role, or the role is managed elsewhere."), ephemeral=True
             )
             return
         await db.log_tos_agreement(interaction.user.id)
-        await interaction.response.send_message(
+        await interaction.followup.send(
             "✅ You've agreed! You can now open a commission ticket.", ephemeral=True
         )
 

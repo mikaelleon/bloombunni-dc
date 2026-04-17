@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import logging
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -15,7 +16,7 @@ from discord.ext import commands
 
 import database as db
 import guild_keys as gk
-from cogs.queue import QueueCog, register_order_in_ticket_channel
+from cogs.queue import QueueCog, build_queue_entry_text, register_order_in_ticket_channel
 from guild_config import get_category, get_role, get_text_channel
 from utils.channel_resolve import resolve_category, resolve_text_channel
 from utils.checks import is_staff
@@ -29,9 +30,7 @@ from utils.quote_compute import (
     compute_quote_totals,
     fmt_php,
     fmt_usd,
-    installment_eligibility_note,
     payment_terms_from_total_send,
-    tat_estimate_text,
     ticket_channel_slug,
 )
 
@@ -39,6 +38,8 @@ _SETUP_CH_ERR = (
     "Could not find that **text channel**. Use a channel mention (`<#id>`) or paste the "
     "**numeric channel ID** (Developer Mode → Copy Channel ID)."
 )
+
+log = logging.getLogger("bot.tickets")
 
 # Modal-only fields (tier / characters / BG / rush are chosen in quote steps first).
 DEFAULT_MODAL_FIELDS: list[dict[str, Any]] = [
@@ -191,6 +192,206 @@ class CloseTicketView(discord.ui.View):
         await cog.handle_close_button(interaction)
 
 
+class TicketOpsView(discord.ui.View):
+    def __init__(self) -> None:
+        super().__init__(timeout=None)
+
+    @staticmethod
+    async def _is_staff_or_admin(interaction: discord.Interaction) -> bool:
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            return False
+        if interaction.user.guild_permissions.administrator:
+            return True
+        staff_role = await get_role(interaction.guild, gk.STAFF_ROLE)
+        return bool(staff_role and staff_role in interaction.user.roles)
+
+    @discord.ui.button(
+        label="Claim Ticket",
+        style=discord.ButtonStyle.primary,
+        custom_id="ticket_ops_claim",
+    )
+    async def claim_btn(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not await self._is_staff_or_admin(interaction):
+            await interaction.response.send_message(
+                embed=user_warn("Staff only", "Only staff/admin can claim tickets."),
+                ephemeral=True,
+            )
+            return
+        if not interaction.guild or not isinstance(interaction.channel, discord.TextChannel):
+            await interaction.response.send_message(
+                embed=user_hint("Ticket only", "Use this inside ticket channel."),
+                ephemeral=True,
+            )
+            return
+        ticket = await db.get_ticket_by_channel(interaction.channel.id)
+        if not ticket:
+            await interaction.response.send_message(
+                embed=user_hint("Not a ticket", "No open ticket record for this channel."),
+                ephemeral=True,
+            )
+            return
+        proc_cat = await get_category(interaction.guild, gk.PROCESSING_CATEGORY)
+        try:
+            if isinstance(proc_cat, discord.CategoryChannel):
+                await interaction.channel.edit(category=proc_cat)
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+        await db.update_ticket_fields(
+            interaction.channel.id,
+            ticket_status="processing",
+            assigned_staff_id=interaction.user.id,
+        )
+        opener = interaction.guild.get_member(int(ticket["client_id"]))
+        opener_mention = opener.mention if opener else f"<@{int(ticket['client_id'])}>"
+        await interaction.response.send_message(
+            embed=success_embed(
+                "Ticket claimed",
+                f"{opener_mention} your ticket is now claimed by {interaction.user.mention}.\n"
+                "Moved to processing category when available.",
+            ),
+            ephemeral=False,
+        )
+
+    @discord.ui.button(
+        label="Done",
+        style=discord.ButtonStyle.success,
+        custom_id="ticket_ops_done",
+    )
+    async def done_btn(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not await self._is_staff_or_admin(interaction):
+            await interaction.response.send_message(
+                embed=user_warn("Staff only", "Only staff/admin can mark done."),
+                ephemeral=True,
+            )
+            return
+        if not interaction.guild or not isinstance(interaction.channel, discord.TextChannel):
+            await interaction.response.send_message(
+                embed=user_hint("Ticket only", "Use this inside ticket channel."),
+                ephemeral=True,
+            )
+            return
+        ticket = await db.get_ticket_by_channel(interaction.channel.id)
+        if not ticket:
+            await interaction.response.send_message(
+                embed=user_hint("Not a ticket", "No open ticket record for this channel."),
+                ephemeral=True,
+            )
+            return
+        done_cat = await get_category(interaction.guild, gk.DONE_CATEGORY)
+        try:
+            if isinstance(done_cat, discord.CategoryChannel):
+                await interaction.channel.edit(category=done_cat)
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+        await db.update_ticket_fields(
+            interaction.channel.id,
+            ticket_status="done_hold",
+            assigned_staff_id=interaction.user.id,
+        )
+        opener = interaction.guild.get_member(int(ticket["client_id"]))
+        opener_mention = opener.mention if opener else f"<@{int(ticket['client_id'])}>"
+        await interaction.response.send_message(
+            embed=success_embed(
+                "Marked done",
+                f"{opener_mention} ticket marked done by {interaction.user.mention}.\n"
+                "Moved to done tickets category.",
+            ),
+            ephemeral=False,
+        )
+        hours = await db.get_guild_setting(interaction.guild.id, gk.DONE_TICKET_AUTO_DELETE_HOURS)
+        if hours and int(hours) > 0:
+            wait_s = int(hours) * 3600
+            channel_id = interaction.channel.id
+            guild_id = interaction.guild.id
+
+            async def _auto_delete_when_due() -> None:
+                await asyncio.sleep(wait_s)
+                g = interaction.client.get_guild(guild_id)
+                if not g:
+                    return
+                ch = g.get_channel(channel_id)
+                if not isinstance(ch, discord.TextChannel):
+                    return
+                row = await db.get_ticket_by_channel(channel_id)
+                if not row:
+                    return
+                if str(row.get("ticket_status") or "") != "done_hold":
+                    return
+                await db.delete_ticket_by_channel(channel_id)
+                try:
+                    await ch.delete(reason="Done ticket auto-delete timer")
+                except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+                    pass
+
+            asyncio.create_task(_auto_delete_when_due())
+
+    @discord.ui.button(
+        label="Remind Client",
+        style=discord.ButtonStyle.secondary,
+        custom_id="ticket_ops_remind",
+    )
+    async def remind_btn(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not await self._is_staff_or_admin(interaction):
+            await interaction.response.send_message(
+                embed=user_warn("Staff only", "Only staff/admin can remind clients."),
+                ephemeral=True,
+            )
+            return
+        if not interaction.guild or not isinstance(interaction.channel, discord.TextChannel):
+            await interaction.response.send_message(
+                embed=user_hint("Ticket only", "Use this inside ticket channel."),
+                ephemeral=True,
+            )
+            return
+        ticket = await db.get_ticket_by_channel(interaction.channel.id)
+        if not ticket:
+            await interaction.response.send_message(
+                embed=user_hint("Not a ticket", "No open ticket record for this channel."),
+                ephemeral=True,
+            )
+            return
+        client = interaction.guild.get_member(int(ticket["client_id"]))
+        if not client:
+            await interaction.response.send_message(
+                embed=user_warn("User missing", "Client is no longer in server."),
+                ephemeral=True,
+            )
+            return
+        jump = interaction.channel.jump_url
+        try:
+            await client.send(
+                embed=info_embed(
+                    "Ticket reminder",
+                    f"Staff sent reminder for your ticket.\nPlease check: {jump}",
+                )
+            )
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                embed=user_warn("DM failed", f"Could not DM {client.mention}."),
+                ephemeral=True,
+            )
+            return
+        await interaction.response.send_message(
+            embed=success_embed("Reminder sent", f"DM reminder sent to {client.mention}."),
+            ephemeral=False,
+        )
+
+    @discord.ui.button(
+        label="Close Ticket",
+        style=discord.ButtonStyle.danger,
+        custom_id="ticket_ops_close",
+    )
+    async def close_btn(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        cog = interaction.client.get_cog("TicketsCog")
+        if not isinstance(cog, TicketsCog):
+            await interaction.response.send_message(
+                embed=user_warn("Tickets unavailable", "Try again in a moment."),
+                ephemeral=True,
+            )
+            return
+        await cog.handle_close_button(interaction)
+
+
 class QuoteApprovalView(discord.ui.View):
     def __init__(self) -> None:
         super().__init__(timeout=None)
@@ -286,6 +487,7 @@ class CommissionTypeSelectView(discord.ui.View):
         self.button_id = button_id
         self.button_label = button_label
         self._row = row
+        self.message: discord.Message | None = None
 
         opts = _parse_select_options_from_row(row)[:25]
         select = discord.ui.Select(
@@ -758,6 +960,122 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
+    @staticmethod
+    def _ticket_answers(ticket: dict[str, Any]) -> dict[str, str]:
+        raw = ticket.get("answers")
+        if not raw:
+            return {}
+        if isinstance(raw, dict):
+            return {str(k): str(v) for k, v in raw.items()}
+        try:
+            data = json.loads(str(raw))
+        except json.JSONDecodeError:
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        return {str(k): str(v) for k, v in data.items()}
+
+    @staticmethod
+    def _is_owner_or_admin(interaction: discord.Interaction) -> bool:
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            return False
+        if interaction.user.id == interaction.guild.owner_id:
+            return True
+        return bool(interaction.user.guild_permissions.administrator)
+
+    async def _post_noted_queue_summary(
+        self,
+        guild: discord.Guild,
+        channel: discord.TextChannel,
+        ticket: dict[str, Any],
+        staff: discord.Member,
+    ) -> None:
+        qch = await get_text_channel(guild, gk.QUEUE_CHANNEL)
+        if not qch:
+            return
+        ans = self._ticket_answers(ticket)
+        buyer = guild.get_member(int(ticket["client_id"]))
+        buyer_name = (buyer.display_name if buyer else "client").replace("`", "")
+        line1 = f"{ans.get('Characters', '?')}  ・  {ans.get('Rendering Tier', '?')}  ・  {ans.get('Commission Type', '?')}"
+        line2 = ans.get("Paying in", "price  ・  payment method")
+        opened_ts = int(datetime.fromisoformat(str(ticket.get("opened_at"))).timestamp()) if ticket.get("opened_at") else int(datetime.now(timezone.utc).timestamp())
+        summary = (
+            "_ _\n"
+            "_ _\n"
+            f"‎ ‎ ‎ ‎ ‎ ╭‎ ‎ ‎ ‎ ‎ 🌸  **__ {buyer_name}'s order line-up__ !**\n"
+            f"-# ‎  ‎ ‎ ‎ ‎ ‎‎﹒ assisted by : {staff.display_name}\n"
+            f"‎ ‎ ‎ ‎ ‎ ﹒ ‎‎` OOO `‎‎ ‎ ‎ ‎ ‎ ‎‎➖‎ ‎ ‎ ‎ ‎ {line1}\n"
+            f"‎ ‎ ‎ ‎ ‎ ‎‎﹒ ` OO1 `‎‎ ‎ ‎ ‎ ‎ ‎‎➖‎ ‎ ‎ ‎ ‎ {line2}\n"
+            f"‎ ‎ ‎ ‎ ‎ ‎‎﹒ ` OO2 `‎‎ ‎ ‎ ‎ ‎ ‎‎➖‎ ‎ ‎ ‎ ‎ <t:{opened_ts}:R>\n"
+            "-# ‎  ‎ ‎ ‎ ‎ ‎‎﹒ check order status here : **__ noted__**  🐇\n"
+            f"‎ ‎ ‎ ‎ ‎ ╰ ‎ ‎ ‎ ‎ ticket  ・  {channel.mention}\n"
+            "_ _\n"
+            "_ _"
+        )
+        try:
+            await qch.send(content=summary)
+        except discord.HTTPException:
+            pass
+
+    @staticmethod
+    def _strike_lines(text: str) -> str:
+        out: list[str] = []
+        for ln in str(text).splitlines():
+            if ln.strip():
+                out.append(f"~~{ln}~~")
+            else:
+                out.append(ln)
+        return "\n".join(out)
+
+    async def _refresh_queue_card_from_ticket(
+        self,
+        guild: discord.Guild,
+        ticket: dict[str, Any],
+        *,
+        stage: str | None = None,
+        force_done_strikethrough: bool = False,
+    ) -> None:
+        order_id = str(ticket.get("order_id") or "").strip()
+        if not order_id:
+            return
+        order = await db.get_order(order_id)
+        if not order:
+            return
+        qcid = await db.get_guild_setting(guild.id, gk.QUEUE_CHANNEL)
+        vcid = await db.get_guild_setting(guild.id, gk.VOUCHES_CHANNEL)
+        if not qcid or not vcid:
+            return
+        qmid = int(order.get("queue_message_id") or 0)
+        if qmid <= 0:
+            return
+        qch = guild.get_channel(int(qcid))
+        if not isinstance(qch, discord.TextChannel):
+            return
+        status = "Done" if force_done_strikethrough else str(order.get("status") or "Noted")
+        buyer = guild.get_member(int(order["client_id"]))
+        buyer_name = buyer.display_name if buyer else str(order.get("client_name") or "buyer")
+        order_number = int(ticket.get("order_number") or 1)
+        body = await build_queue_entry_text(
+            order,
+            guild,
+            qmid,
+            status,
+            order_number=order_number,
+            buyer_display_name=buyer_name,
+            queue_channel_id=int(qcid),
+            vouches_channel_id=int(vcid),
+        )
+        if stage:
+            body = f"{body}\n\n003 - stage: {stage}"
+        if force_done_strikethrough:
+            body = self._strike_lines(body)
+        emb = queue_embed(order, body)
+        try:
+            msg = await qch.fetch_message(qmid)
+            await msg.edit(embed=emb)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            return
+
     # --- /ticketpanel ---
 
     @app_commands.command(name="ticketpanel", description="Post or update the configurable ticket panel")
@@ -881,14 +1199,15 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
     ) -> None:
         if not interaction.guild:
             return
+        await interaction.response.defer(ephemeral=True)
         if await db.count_ticket_buttons(interaction.guild.id) >= 5:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=user_hint("Limit", "Maximum 5 ticket buttons per server."),
                 ephemeral=True,
             )
             return
         if await db.find_ticket_button_by_label(interaction.guild.id, label):
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=user_hint(
                     "Duplicate",
                     "A button with that label already exists. Use `/ticketbutton remove` first.",
@@ -907,7 +1226,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         if category and str(category).strip():
             cat_ch = resolve_category(interaction.guild, category)
             if not cat_ch:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     embed=user_hint("Invalid category", "Could not resolve that category."),
                     ephemeral=True,
                 )
@@ -929,8 +1248,6 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             cat_id,
             None,
         )
-
-        await interaction.response.defer(ephemeral=True)
         err = await self._refresh_panel_message(interaction.guild)
         if err:
             await interaction.followup.send(embed=user_hint("Panel", err), ephemeral=True)
@@ -950,14 +1267,14 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
     ) -> None:
         if not interaction.guild:
             return
+        await interaction.response.defer(ephemeral=True)
         ok = await db.delete_ticket_button_by_label(interaction.guild.id, label)
         if not ok:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=user_hint("Not found", "No button with that label."),
                 ephemeral=True,
             )
             return
-        await interaction.response.defer(ephemeral=True)
         err = await self._refresh_panel_message(interaction.guild)
         if err:
             await interaction.followup.send(embed=user_hint("Panel", err), ephemeral=True)
@@ -1268,21 +1585,46 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         )
         if view is not None:
             try:
+                # Global registration handles stale/older panel messages too.
+                self.bot.add_view(view)
+            except ValueError:
+                pass
+            try:
                 self.bot.add_view(view, message_id=msg.id)
             except ValueError:
                 pass
         return None
 
+    @staticmethod
+    def _next_ticket_suffix(guild: discord.Guild, base_slug: str) -> int:
+        max_n = 0
+        pat = re.compile(rf"^{re.escape(base_slug)}-(\d{{3}})$")
+        for ch in guild.text_channels:
+            m = pat.match(ch.name)
+            if not m:
+                continue
+            try:
+                n = int(m.group(1))
+            except ValueError:
+                continue
+            if n > max_n:
+                max_n = n
+        return max_n + 1
+
     async def handle_panel_button(self, interaction: discord.Interaction, button_id: str) -> None:
+        try:
+            await interaction.response.defer(ephemeral=True)
+        except discord.HTTPException:
+            return
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=user_hint("Use this in a server", "Open this from inside the Discord server."), ephemeral=True
             )
             return
 
         row = await db.get_ticket_button_by_id(button_id)
         if not row or int(row["guild_id"]) != interaction.guild.id:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=user_hint(
                     "Button needs a refresh",
                     "Ask staff to run **`/ticketpanel`** again so buttons stay in sync.",
@@ -1295,7 +1637,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         if tos_role is None or tos_role not in interaction.user.roles:
             tos_cid = await db.get_guild_setting(interaction.guild.id, gk.TOS_CHANNEL)
             hint = f"Please read and agree in <#{tos_cid}> first." if tos_cid else "Please agree to the TOS first."
-            await interaction.response.send_message(embed=user_warn("Terms required", hint), ephemeral=True)
+            await interaction.followup.send(embed=user_warn("Terms required", hint), ephemeral=True)
             return
         if not await db.has_current_tos_agreement(interaction.user.id):
             cur_ver = await db.get_current_tos_version()
@@ -1305,7 +1647,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
                 if tos_cid
                 else f"TOS updated to version **v{cur_ver}**. Please re-agree first."
             )
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=user_warn("TOS updated", hint),
                 ephemeral=True,
             )
@@ -1322,13 +1664,13 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
                     if ver_cid
                     else "Ask staff to set **Age verified** role and **verification channel** in **`/config view`**, then verify."
                 )
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     embed=user_warn("Age verification required", hint), ephemeral=True
                 )
                 return
 
         if not await db.shop_is_open_db():
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=user_warn("Shop is closed", "Commissions are closed right now — check back when staff reopen."),
                 ephemeral=True,
             )
@@ -1342,7 +1684,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
                 # Stale DB row (channel deleted manually) — clear and allow a new ticket.
                 await db.delete_ticket_by_channel(existing_channel_id)
             else:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     embed=user_warn(
                         "Open ticket already exists",
                         f"You already have an open ticket at <#{existing_channel_id}>. Please continue there.",
@@ -1362,7 +1704,11 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             str(row["label"]),
             row,
         )
-        await interaction.response.send_message(embed=emb, view=view, ephemeral=True)
+        try:
+            msg = await interaction.followup.send(embed=emb, view=view, ephemeral=True, wait=True)
+            view.message = msg
+        except discord.HTTPException:
+            pass
 
     async def handle_modal_submit(
         self,
@@ -1433,7 +1779,9 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
 
         raw_name = re.sub(r"[^a-z0-9\s]", "", member.name.lower())
         raw_name = re.sub(r"\s+", "_", raw_name).strip("_")[:80] or "user"
-        ch_slug = ticket_channel_slug(rendering_tier, commission_type, raw_name)
+        base_slug = ticket_channel_slug(rendering_tier, commission_type, raw_name)[:96]
+        ticket_no = self._next_ticket_suffix(interaction.guild, base_slug)
+        ch_slug = f"{base_slug}-{ticket_no:03d}"[:100]
 
         try:
             ticket_ch = await interaction.guild.create_text_channel(
@@ -1506,25 +1854,45 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         }
         full_answers.update(answers)
 
-        await db.insert_ticket_open(
-            ticket_ch.id,
-            interaction.guild.id,
-            member.id,
-            button_id=button_id,
-            answers=full_answers,
-            quote_total_php=total_php,
-            quote_usd_approx=total_usd,
-            quote_snapshot_json=json.dumps(snap, ensure_ascii=False),
-            rendering_tier=rendering_tier,
-            background=background,
-            char_count_key=char_key,
-            rush_addon=1 if rush_addon else 0,
-            ticket_status="awaiting_payment",
-            quote_expires_at=expires_at.isoformat(),
-            quote_approved=0,
-            payment_status="awaiting_payment",
-            close_approved_by_client=0,
-        )
+        try:
+            await db.insert_ticket_open(
+                ticket_ch.id,
+                interaction.guild.id,
+                member.id,
+                button_id=button_id,
+                answers=full_answers,
+                quote_total_php=total_php,
+                quote_usd_approx=total_usd,
+                quote_snapshot_json=json.dumps(snap, ensure_ascii=False),
+                rendering_tier=rendering_tier,
+                background=background,
+                char_count_key=char_key,
+                rush_addon=1 if rush_addon else 0,
+                ticket_status="awaiting_payment",
+                quote_expires_at=expires_at.isoformat(),
+                quote_approved=0,
+                payment_status="awaiting_payment",
+                close_approved_by_client=0,
+            )
+        except Exception:
+            log.exception(
+                "Ticket create DB save failed guild_id=%s user_id=%s channel_name=%s",
+                interaction.guild.id,
+                member.id,
+                ch_slug,
+            )
+            try:
+                await ticket_ch.delete(reason="Ticket DB create failed")
+            except (discord.Forbidden, discord.HTTPException, discord.NotFound):
+                pass
+            await interaction.followup.send(
+                embed=user_warn(
+                    "Ticket create failed",
+                    "Could not save ticket record. Please try again.",
+                ),
+                ephemeral=True,
+            )
+            return
 
         try:
             await ticket_ch.send(member.mention)
@@ -1554,29 +1922,25 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
         except discord.HTTPException:
             pass
 
-        tat = tat_estimate_text(rendering_tier, commission_type, rush_addon)
-        inst = installment_eligibility_note(commission_type, rendering_tier)
-        loyalty_row = await db.get_loyalty(member.id)
-        l_count = int(loyalty_row["completed_count"]) if loyalty_row else 0
-        extra_head = f"{tat}\n"
-        if inst:
-            extra_head += f"\n{inst}\n"
-        extra_head += f"\n**Loyalty:** {l_count} completed order(s) on record.\n"
-
-        desc_lines: list[str] = [extra_head]
-        for key in WELCOME_FIELD_ORDER:
-            if key in full_answers:
-                desc_lines.append(f"**{key}:** {full_answers[key]}")
-        for k, v in full_answers.items():
-            if k not in WELCOME_FIELD_ORDER and not k.startswith("_"):
-                desc_lines.append(f"**{k}:** {v}")
-        body = "\n".join(desc_lines)[:3900]
         welcome = discord.Embed(
-            title=f"🎀 {button_label} ticket — {member.display_name}",
-            description=body,
+            title="Ticket Opened",
+            description=f"{member.mention} has created a new **{button_label}** ticket.",
             color=PRIMARY,
         )
-        await ticket_ch.send(embed=welcome, view=CloseTicketView())
+        for key in WELCOME_FIELD_ORDER:
+            if key in full_answers:
+                label = str(key).strip().lower()
+                welcome.add_field(
+                    name=label,
+                    value=str(full_answers[key])[:1024] or "-",
+                    inline=False,
+                )
+        for k, v in full_answers.items():
+            if k not in WELCOME_FIELD_ORDER and not k.startswith("_"):
+                label = str(k).strip().lower()
+                welcome.add_field(name=label[:256], value=str(v)[:1024] or "-", inline=False)
+        welcome.set_footer(text=f"Ticket ID: {ch_slug} • use buttons below for actions")
+        await ticket_ch.send(embed=welcome, view=TicketOpsView())
 
         # Downpayment / full payment due (amounts use **total to send** including processor fee)
         if pc == "PHP":
@@ -1891,6 +2255,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             )
             return
         await db.update_ticket_fields(interaction.channel.id, wip_stage=stage)
+        await self._refresh_queue_card_from_ticket(interaction.guild, t, stage=stage)
         emb = discord.Embed(
             title="📍 Stage update",
             description=f"**{stage}**",
@@ -2139,6 +2504,94 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             ephemeral=True,
         )
 
+    @app_commands.command(name="noted", description="Move current ticket to noted orders and post queue summary")
+    @is_staff()
+    async def noted_cmd(self, interaction: discord.Interaction) -> None:
+        if not interaction.guild or not isinstance(interaction.channel, discord.TextChannel) or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message(
+                embed=user_hint("Ticket only", "Use this inside ticket channel."),
+                ephemeral=True,
+            )
+            return
+        ticket = await db.get_ticket_by_channel(interaction.channel.id)
+        if not ticket:
+            await interaction.response.send_message(
+                embed=user_hint("Not a ticket", "No open ticket record for this channel."),
+                ephemeral=True,
+            )
+            return
+        noted_cat = await get_category(interaction.guild, gk.NOTED_CATEGORY)
+        try:
+            if isinstance(noted_cat, discord.CategoryChannel):
+                await interaction.channel.edit(category=noted_cat)
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+        await db.update_ticket_fields(
+            interaction.channel.id,
+            ticket_status="noted",
+            assigned_staff_id=interaction.user.id,
+        )
+        await self._post_noted_queue_summary(interaction.guild, interaction.channel, ticket, interaction.user)
+        opener = interaction.guild.get_member(int(ticket["client_id"]))
+        opener_mention = opener.mention if opener else f"<@{int(ticket['client_id'])}>"
+        await interaction.response.send_message(
+            embed=success_embed(
+                "Moved to noted",
+                f"{opener_mention} ticket moved to noted by {interaction.user.mention}. Queue summary posted.",
+            ),
+            ephemeral=False,
+        )
+
+    @app_commands.command(name="deleteticket", description="Owner/admin delete current ticket channel")
+    async def deleteticket_cmd(self, interaction: discord.Interaction) -> None:
+        if not self._is_owner_or_admin(interaction):
+            await interaction.response.send_message(
+                embed=user_warn("Owner/admin only", "Only server owner/admin can delete ticket channel directly."),
+                ephemeral=True,
+            )
+            return
+        if not interaction.guild or not isinstance(interaction.channel, discord.TextChannel):
+            await interaction.response.send_message(
+                embed=user_hint("Ticket only", "Use this inside ticket channel."),
+                ephemeral=True,
+            )
+            return
+        ticket = await db.get_ticket_by_channel(interaction.channel.id)
+        if not ticket:
+            await interaction.response.send_message(
+                embed=user_hint("Not a ticket", "No open ticket record for this channel."),
+                ephemeral=True,
+            )
+            return
+        await interaction.response.send_message(
+            embed=info_embed("Deleting", "Ticket channel will be deleted now."),
+            ephemeral=True,
+        )
+        await db.delete_ticket_by_channel(interaction.channel.id)
+        try:
+            await interaction.channel.delete(reason=f"Ticket deleted by owner/admin {interaction.user.id}")
+        except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+            pass
+
+    @app_commands.command(name="setdoneautodelete", description="Owner/admin set auto-delete hours for done tickets (0 off)")
+    @app_commands.describe(hours="Hours after Done button before auto-delete. 0 disables.")
+    async def setdoneautodelete_cmd(
+        self, interaction: discord.Interaction, hours: app_commands.Range[int, 0, 720]
+    ) -> None:
+        if not self._is_owner_or_admin(interaction):
+            await interaction.response.send_message(
+                embed=user_warn("Owner/admin only", "Only server owner/admin can set done auto-delete."),
+                ephemeral=True,
+            )
+            return
+        if not interaction.guild:
+            return
+        await db.set_guild_setting(interaction.guild.id, gk.DONE_TICKET_AUTO_DELETE_HOURS, int(hours))
+        await interaction.response.send_message(
+            embed=success_embed("Saved", f"Done auto-delete set to **{hours}** hour(s)."),
+            ephemeral=True,
+        )
+
     @ticketbutton.command(
         name="agegate",
         description="Require age-verified role to open this ticket type (NSFW)",
@@ -2305,6 +2758,14 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             )
 
         await db.close_ticket_record(interaction.channel.id, 1)
+        if ticket.get("order_id"):
+            await db.update_order_status(str(ticket["order_id"]), "Done")
+            await self._refresh_queue_card_from_ticket(
+                interaction.guild,
+                ticket,
+                stage=str(ticket.get("wip_stage") or ""),
+                force_done_strikethrough=True,
+            )
 
         ch = interaction.channel
         for i in range(15, 0, -1):
@@ -2346,11 +2807,14 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
                 ephemeral=True,
             )
             return
+        now_iso = datetime.now(timezone.utc).isoformat()
         await db.update_ticket_fields(
             interaction.channel.id,
             close_approved_by_client=1,
-            close_approved_at=datetime.now(timezone.utc).isoformat(),
+            close_approved_at=now_iso,
         )
+        # Hard guarantee for legacy DBs where update helper may skip absent columns.
+        await db.force_mark_ticket_close_approved(interaction.channel.id, now_iso)
         await interaction.response.send_message(
             embed=success_embed("Closure approved", "Staff may now close this ticket."),
             ephemeral=False,
@@ -2360,6 +2824,10 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
 async def register_ticket_persistent_views(bot: commands.Bot) -> None:
     try:
         bot.add_view(CloseTicketView())
+    except ValueError:
+        pass
+    try:
+        bot.add_view(TicketOpsView())
     except ValueError:
         pass
     try:
@@ -2378,6 +2846,11 @@ async def register_ticket_persistent_views(bot: commands.Bot) -> None:
             continue
         view = cog._build_panel_view(gid, rows)
         if view:
+            try:
+                # Register globally so old panel messages still get handled.
+                bot.add_view(view)
+            except ValueError:
+                pass
             try:
                 bot.add_view(view, message_id=mid)
             except ValueError:

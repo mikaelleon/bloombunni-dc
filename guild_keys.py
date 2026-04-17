@@ -8,6 +8,8 @@ TOS_AGREED_ROLE = "tos_agreed_role"
 AGE_VERIFIED_ROLE = "age_verified_role"
 COMMISSIONS_OPEN_ROLE = "commissions_open_role"
 PLEASE_VOUCH_ROLE = "please_vouch_role"
+FEEDBACK_PENDING_ROLE = "feedback_pending_role"
+REVIEW_REWARD_ROLE = "review_reward_role"
 BOOSTIE_ROLE = "boostie_role"
 RESELLER_ROLE = "reseller_role"
 
@@ -29,6 +31,7 @@ VERIFICATION_CHANNEL = "verification_channel"
 PAYMENT_CHANNEL = "payment_channel"
 WARN_LOG_CHANNEL = "warn_log_channel"
 ERROR_ALERT_CHANNEL = "error_alert_channel"
+FEEDBACK_CHANNEL = "feedback_channel"
 # Loyalty stamp cards (ticket close → channel post + thread; vouch advances stamp)
 LOYALTY_CARD_CHANNEL = "loyalty_card_channel"
 LOYALTY_CARD_CATEGORY = "loyalty_card_category"
@@ -47,6 +50,7 @@ CHANNEL_SLOT_CHOICES: list[tuple[str, str]] = [
     ("Payment panel", PAYMENT_CHANNEL),
     ("Warn log", WARN_LOG_CHANNEL),
     ("Bot error alerts", ERROR_ALERT_CHANNEL),
+    ("Feedback channel (owner review inbox)", FEEDBACK_CHANNEL),
     ("Loyalty cards (stamp posts)", LOYALTY_CARD_CHANNEL),
 ]
 
@@ -64,6 +68,8 @@ ROLE_SLOT_CHOICES: list[tuple[str, str]] = [
     ("Age verified (NSFW tickets)", AGE_VERIFIED_ROLE),
     ("Commissions open", COMMISSIONS_OPEN_ROLE),
     ("Please vouch", PLEASE_VOUCH_ROLE),
+    ("Feedback pending", FEEDBACK_PENDING_ROLE),
+    ("Review reward", REVIEW_REWARD_ROLE),
     ("Boostie (quote discount)", BOOSTIE_ROLE),
     ("Reseller (quote discount)", RESELLER_ROLE),
 ]
@@ -101,6 +107,7 @@ WARN_REASON_TEMPLATES_JSON = "warn_reason_templates_json"
 # Integer settings (guild_settings) — warn threshold override; default 3 in code if unset
 WARN_THRESHOLD_KEY = "warn_threshold"
 QUEUE_CAPACITY_KEY = "queue_capacity"
+DONE_TICKET_AUTO_DELETE_HOURS = "done_ticket_auto_delete_hours"
 
 # Synthetic ticket panel button id for warn appeal tickets (not a real panel button)
 WARN_APPEAL_BUTTON_ID = "warn_appeal"

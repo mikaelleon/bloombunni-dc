@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any
 
@@ -18,6 +19,8 @@ from utils.embeds import info_embed, success_embed, user_hint, user_warn
 from utils.logging_setup import get_logger
 
 log = get_logger("loyalty_cards")
+_WORKSPACE_ROOT = Path(__file__).resolve().parents[1]
+_LCSTATES_DIR = _WORKSPACE_ROOT / "lcstates"
 
 DEFAULT_CARD_TEMPLATE = (
     "🪄 thank you for purchasing\n\n"
@@ -63,6 +66,46 @@ async def _fetch_url_bytes(url: str, limit: int = 8_000_000) -> bytes:
             if len(blob) > limit:
                 raise ValueError("Image too large (max 8MB).")
             return blob
+
+
+def _local_lcstate_path(stamp_index: int) -> Path:
+    return _LCSTATES_DIR / f"{int(stamp_index)}-STAMP.png"
+
+
+def _resolve_repo_text_path(raw: str) -> Path | None:
+    rel = str(raw or "").strip().replace("\\", "/")
+    if not rel or rel.startswith("/"):
+        return None
+    p = (_WORKSPACE_ROOT / rel).resolve()
+    if not str(p).startswith(str(_WORKSPACE_ROOT)):
+        return None
+    return p
+
+
+async def _load_loyalty_image_bytes(
+    guild_id: int,
+    stamp_index: int,
+    configured_map: dict[int, str] | None = None,
+) -> tuple[bytes, str]:
+    local_default = _local_lcstate_path(stamp_index)
+    if local_default.exists():
+        return (local_default.read_bytes(), local_default.suffix.lstrip(".") or "png")
+
+    imgs = configured_map if configured_map is not None else await db.list_loyalty_card_images(guild_id)
+    src = imgs.get(int(stamp_index))
+    if not src:
+        raise ValueError(f"No loyalty image configured for stamp {stamp_index}.")
+    s = str(src).strip()
+    if s.startswith(("http://", "https://")):
+        blob = await _fetch_url_bytes(s)
+        ext = "png"
+        if "." in s.split("?")[0].rsplit("/", 1)[-1]:
+            ext = s.split("?")[0].rsplit(".", 1)[-1][:8] or "png"
+        return (blob, ext)
+    local = _resolve_repo_text_path(s)
+    if not local or not local.exists():
+        raise ValueError(f"Configured loyalty image path missing: {s}")
+    return (local.read_bytes(), local.suffix.lstrip(".") or "png")
 
 
 async def _delete_card_message(
@@ -157,7 +200,7 @@ async def issue_loyalty_card_for_ticket_closure(
         return
     gid = guild.id
     imgs = await db.list_loyalty_card_images(gid)
-    if not imgs or 0 not in imgs:
+    if not _local_lcstate_path(0).exists() and (not imgs or 0 not in imgs):
         return
     ch = await resolve_loyalty_channel(guild)
     if not isinstance(ch, discord.TextChannel):
@@ -182,11 +225,7 @@ async def issue_loyalty_card_for_ticket_closure(
             stamps=0,
             max_stamps=max_idx,
         )
-        url0 = imgs[0]
-        data = await _fetch_url_bytes(url0)
-        ext = "png"
-        if "." in url0.split("?")[0].rsplit("/", 1)[-1]:
-            ext = url0.split("?")[0].rsplit(".", 1)[-1][:8] or "png"
+        data, ext = await _load_loyalty_image_bytes(gid, 0, imgs)
         fp = discord.File(io.BytesIO(data), filename=f"loyalty-LC{card_number:03d}-0.{ext}")
         t_ch = ticket.get("channel_id")
         t_ch_id = int(t_ch) if t_ch is not None else None
@@ -228,10 +267,15 @@ async def apply_vouch_to_loyalty_card(
 ) -> None:
     gid = guild.id
     imgs = await db.list_loyalty_card_images(gid)
-    if not imgs:
+    if not imgs and not _local_lcstate_path(0).exists():
         return
-    max_idx = await db.loyalty_card_max_stamp_index(gid)
-    if max_idx is None:
+    max_idx_local = -1
+    for i in range(0, 31):
+        if _local_lcstate_path(i).exists():
+            max_idx_local = i
+    max_idx_db = await db.loyalty_card_max_stamp_index(gid)
+    max_idx = max(max_idx_local, int(max_idx_db) if max_idx_db is not None else -1)
+    if max_idx < 0:
         return
     rows = await db.get_active_loyalty_cards_for_user(gid, user_id)
     if not rows:
@@ -242,9 +286,6 @@ async def apply_vouch_to_loyalty_card(
     if cur >= max_idx:
         return
     new_sc = min(cur + 1, max_idx)
-    img_url = imgs.get(new_sc) or imgs.get(max(imgs.keys()))
-    if not img_url:
-        return
     ch = guild.get_channel(int(row["channel_id"])) if row.get("channel_id") else None
     mid = row.get("message_id")
     if not isinstance(ch, discord.TextChannel) or not mid:
@@ -262,10 +303,7 @@ async def apply_vouch_to_loyalty_card(
     )
     now_ts = int(datetime.now(timezone.utc).timestamp())
     try:
-        data = await _fetch_url_bytes(img_url)
-        ext = "png"
-        if "." in img_url.split("?")[0].rsplit("/", 1)[-1]:
-            ext = img_url.split("?")[0].rsplit(".", 1)[-1][:8] or "png"
+        data, ext = await _load_loyalty_image_bytes(gid, new_sc, imgs)
         fp = discord.File(
             io.BytesIO(data),
             filename=f"loyalty-LC{int(row['card_number']):03d}-{new_sc}.{ext}",
@@ -431,8 +469,8 @@ class LoyaltyCardCog(commands.Cog, name="LoyaltyCardCog"):
             ephemeral=True,
         )
 
-    @loyalty_card.command(name="setimage", description="Set image URL for stamp index (owner/admin)")
-    @app_commands.describe(stamp_index="0 = empty, 1 = one stamp, …", url="Direct image URL")
+    @loyalty_card.command(name="setimage", description="Set image source for stamp index (URL or repo path)")
+    @app_commands.describe(stamp_index="0 = empty, 1 = one stamp, …", url="https URL or repo path like lcstates/0-STAMP.png")
     async def setimage_cmd(
         self,
         interaction: discord.Interaction,
@@ -443,9 +481,13 @@ class LoyaltyCardCog(commands.Cog, name="LoyaltyCardCog"):
             await interaction.response.send_message("Owner/admin only.", ephemeral=True)
             return
         u = url.strip()
-        if not u.startswith(("http://", "https://")):
-            await interaction.response.send_message("URL must be http(s).", ephemeral=True)
-            return
+        if u.startswith(("http://", "https://")):
+            pass
+        else:
+            p = _resolve_repo_text_path(u)
+            if not p or not p.exists():
+                await interaction.response.send_message("Path not found in repo.", ephemeral=True)
+                return
         await db.upsert_loyalty_card_image(interaction.guild.id, int(stamp_index), u)
         await interaction.response.send_message(
             embed=success_embed("Saved", f"Stamp **{stamp_index}** image set."),
