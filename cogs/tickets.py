@@ -258,21 +258,22 @@ class TicketOpsView(discord.ui.View):
         custom_id="ticket_ops_done",
     )
     async def done_btn(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.defer()
         if not await self._is_staff_or_admin(interaction):
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=user_warn("Staff only", "Only staff/admin can mark done."),
                 ephemeral=True,
             )
             return
         if not interaction.guild or not isinstance(interaction.channel, discord.TextChannel):
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=user_hint("Ticket only", "Use this inside ticket channel."),
                 ephemeral=True,
             )
             return
         ticket = await db.get_ticket_by_channel(interaction.channel.id)
         if not ticket:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=user_hint("Not a ticket", "No open ticket record for this channel."),
                 ephemeral=True,
             )
@@ -289,12 +290,22 @@ class TicketOpsView(discord.ui.View):
             assigned_staff_id=interaction.user.id,
         )
         opener = interaction.guild.get_member(int(ticket["client_id"]))
+        try:
+            from cogs.loyalty_cards import issue_loyalty_card_for_ticket_closure
+
+            await issue_loyalty_card_for_ticket_closure(interaction.guild, ticket, opener)
+        except Exception:
+            log.exception(
+                "done_btn loyalty issue failed guild_id=%s ticket_channel_id=%s",
+                interaction.guild.id,
+                interaction.channel.id,
+            )
         opener_mention = opener.mention if opener else f"<@{int(ticket['client_id'])}>"
-        await interaction.response.send_message(
+        await interaction.followup.send(
             embed=success_embed(
                 "Marked done",
                 f"{opener_mention} ticket marked done by {interaction.user.mention}.\n"
-                "Moved to done tickets category.",
+                "Moved to done tickets category. Loyalty card sent.",
             ),
             ephemeral=False,
         )

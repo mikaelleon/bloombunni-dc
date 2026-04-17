@@ -207,6 +207,14 @@ async def issue_loyalty_card_for_ticket_closure(
         log.warning("Loyalty card skipped (no channel): guild_id=%s", gid)
         return
     try:
+        # Idempotency: if same ticket already issued active card, do nothing.
+        t_ch = ticket.get("channel_id")
+        t_ch_id = int(t_ch) if t_ch is not None else None
+        existing = await db.get_active_loyalty_cards_for_user(gid, client.id)
+        for row in existing:
+            if t_ch_id is not None and int(row.get("ticket_channel_id") or 0) == t_ch_id:
+                return
+
         await remove_active_loyalty_cards_for_user(guild, client.id)
         card_number = await db.allocate_loyalty_card_number(gid)
         max_idx = await db.loyalty_card_max_stamp_index(gid)
@@ -227,8 +235,6 @@ async def issue_loyalty_card_for_ticket_closure(
         )
         data, ext = await _load_loyalty_image_bytes(gid, 0, imgs)
         fp = discord.File(io.BytesIO(data), filename=f"loyalty-LC{card_number:03d}-0.{ext}")
-        t_ch = ticket.get("channel_id")
-        t_ch_id = int(t_ch) if t_ch is not None else None
         pk = await db.insert_loyalty_card(
             gid,
             card_number=card_number,

@@ -584,6 +584,37 @@ async def _ensure_loyalty_cards_schema(db: aiosqlite.Connection) -> None:
     )
 
 
+async def _ensure_reviews_schema(db: aiosqlite.Connection) -> None:
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS commission_reviews (
+            review_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER NOT NULL,
+            reviewer_id INTEGER NOT NULL,
+            order_id TEXT NOT NULL,
+            overall_quality INTEGER NOT NULL,
+            communication INTEGER NOT NULL,
+            turnaround INTEGER NOT NULL,
+            process_smoothness INTEGER NOT NULL,
+            enjoyed_most TEXT,
+            improvements TEXT,
+            commission_again TEXT NOT NULL,
+            recommend_friend TEXT NOT NULL,
+            testimonial_consent TEXT NOT NULL,
+            discount_code TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE (guild_id, reviewer_id, order_id)
+        )
+        """
+    )
+    await db.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_commission_reviews_lookup
+        ON commission_reviews (guild_id, reviewer_id, order_id)
+        """
+    )
+
+
 async def _migration_applied(db: aiosqlite.Connection, version: int) -> bool:
     cur = await db.execute(
         "SELECT 1 FROM schema_migrations WHERE version = ? LIMIT 1",
@@ -818,6 +849,7 @@ async def init_db() -> None:
         await _run_migration(db, 17, "ensure_autoresponder_trigger_columns", _ensure_autoresponder_trigger_columns)
         await _run_migration(db, 18, "ensure_loyalty_cards_schema", _ensure_loyalty_cards_schema)
         await _run_migration(db, 19, "ensure_ticket_deleted_at_column", _ensure_ticket_deleted_at_column)
+        await _run_migration(db, 20, "ensure_reviews_schema", _ensure_reviews_schema)
         await db.commit()
 
 
@@ -1121,6 +1153,40 @@ async def get_order(order_id: str) -> dict[str, Any] | None:
     return out
 
 
+async def get_order_for_ticket_client(ticket_channel_id: int, client_id: int) -> dict[str, Any] | None:
+    t0 = time.perf_counter()
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        try:
+            cur = await db.execute(
+                """
+                SELECT * FROM orders
+                WHERE ticket_channel_id = ? AND client_id = ? AND deleted_at IS NULL
+                ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC
+                LIMIT 1
+                """,
+                (int(ticket_channel_id), int(client_id)),
+            )
+        except aiosqlite.OperationalError as e:
+            if "no such column: deleted_at" not in str(e):
+                raise
+            cur = await db.execute(
+                """
+                SELECT * FROM orders
+                WHERE ticket_channel_id = ? AND client_id = ?
+                ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC
+                LIMIT 1
+                """,
+                (int(ticket_channel_id), int(client_id)),
+            )
+        row = await cur.fetchone()
+        out = dict(row) if row else None
+    await _record_slow_query(
+        "get_order_for_ticket_client", (time.perf_counter() - t0) * 1000.0
+    )
+    return out
+
+
 async def list_orders_for_client(client_id: int, limit: int = 25) -> list[dict[str, Any]]:
     t0 = time.perf_counter()
     async with aiosqlite.connect(DATABASE_PATH) as db:
@@ -1150,6 +1216,53 @@ async def list_orders_for_client(client_id: int, limit: int = 25) -> list[dict[s
         rows = await cur.fetchall()
         out = [dict(r) for r in rows]
     await _record_slow_query("list_orders_for_client", (time.perf_counter() - t0) * 1000.0)
+    return out
+
+
+async def list_reviewable_orders_for_client(
+    guild_id: int, client_id: int, limit: int = 50
+) -> list[dict[str, Any]]:
+    t0 = time.perf_counter()
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        try:
+            cur = await db.execute(
+                """
+                SELECT o.*
+                FROM orders o
+                WHERE o.client_id = ?
+                  AND o.deleted_at IS NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM commission_reviews r
+                      WHERE r.guild_id = ? AND r.reviewer_id = ? AND r.order_id = o.order_id
+                  )
+                ORDER BY datetime(o.updated_at) DESC, datetime(o.created_at) DESC
+                LIMIT ?
+                """,
+                (int(client_id), int(guild_id), int(client_id), int(limit)),
+            )
+        except aiosqlite.OperationalError as e:
+            if "no such column: o.deleted_at" not in str(e):
+                raise
+            cur = await db.execute(
+                """
+                SELECT o.*
+                FROM orders o
+                WHERE o.client_id = ?
+                  AND NOT EXISTS (
+                      SELECT 1 FROM commission_reviews r
+                      WHERE r.guild_id = ? AND r.reviewer_id = ? AND r.order_id = o.order_id
+                  )
+                ORDER BY datetime(o.updated_at) DESC, datetime(o.created_at) DESC
+                LIMIT ?
+                """,
+                (int(client_id), int(guild_id), int(client_id), int(limit)),
+            )
+        rows = await cur.fetchall()
+        out = [dict(r) for r in rows]
+    await _record_slow_query(
+        "list_reviewable_orders_for_client", (time.perf_counter() - t0) * 1000.0
+    )
     return out
 
 
@@ -1863,6 +1976,68 @@ async def list_vouches_for_user(client_id: int) -> list[dict[str, Any]]:
         )
         rows = await cur.fetchall()
         return [dict(r) for r in rows]
+
+
+async def insert_commission_review(
+    *,
+    guild_id: int,
+    reviewer_id: int,
+    order_id: str,
+    overall_quality: int,
+    communication: int,
+    turnaround: int,
+    process_smoothness: int,
+    enjoyed_most: str,
+    improvements: str,
+    commission_again: str,
+    recommend_friend: str,
+    testimonial_consent: str,
+    discount_code: str | None,
+) -> int:
+    now = _utc_now()
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cur = await db.execute(
+            """
+            INSERT INTO commission_reviews (
+                guild_id, reviewer_id, order_id,
+                overall_quality, communication, turnaround, process_smoothness,
+                enjoyed_most, improvements,
+                commission_again, recommend_friend, testimonial_consent,
+                discount_code, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                int(guild_id),
+                int(reviewer_id),
+                str(order_id),
+                int(overall_quality),
+                int(communication),
+                int(turnaround),
+                int(process_smoothness),
+                (enjoyed_most or "")[:1500],
+                (improvements or "")[:1500],
+                str(commission_again)[:64],
+                str(recommend_friend)[:32],
+                str(testimonial_consent)[:128],
+                str(discount_code)[:64] if discount_code else None,
+                now,
+            ),
+        )
+        await db.commit()
+        return int(cur.lastrowid)
+
+
+async def has_commission_review(guild_id: int, reviewer_id: int, order_id: str) -> bool:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cur = await db.execute(
+            """
+            SELECT 1 FROM commission_reviews
+            WHERE guild_id = ? AND reviewer_id = ? AND order_id = ?
+            LIMIT 1
+            """,
+            (int(guild_id), int(reviewer_id), str(order_id)),
+        )
+        return await cur.fetchone() is not None
 
 
 # --- Loyalty ---
