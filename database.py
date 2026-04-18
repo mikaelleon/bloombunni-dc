@@ -584,6 +584,24 @@ async def _ensure_loyalty_cards_schema(db: aiosqlite.Connection) -> None:
     )
 
 
+async def _ensure_orders_review_submitted_column(db: aiosqlite.Connection) -> None:
+    cur = await db.execute("PRAGMA table_info(orders)")
+    cols = {row[1] for row in await cur.fetchall()}
+    if "review_submitted" not in cols:
+        await db.execute(
+            "ALTER TABLE orders ADD COLUMN review_submitted INTEGER NOT NULL DEFAULT 0"
+        )
+
+
+async def _ensure_tickets_last_client_remind_at_column(db: aiosqlite.Connection) -> None:
+    cur = await db.execute("PRAGMA table_info(tickets)")
+    cols = {row[1] for row in await cur.fetchall()}
+    if "last_client_remind_at" not in cols:
+        await db.execute(
+            "ALTER TABLE tickets ADD COLUMN last_client_remind_at TEXT"
+        )
+
+
 async def _ensure_reviews_schema(db: aiosqlite.Connection) -> None:
     await db.execute(
         """
@@ -850,6 +868,10 @@ async def init_db() -> None:
         await _run_migration(db, 18, "ensure_loyalty_cards_schema", _ensure_loyalty_cards_schema)
         await _run_migration(db, 19, "ensure_ticket_deleted_at_column", _ensure_ticket_deleted_at_column)
         await _run_migration(db, 20, "ensure_reviews_schema", _ensure_reviews_schema)
+        await _run_migration(db, 21, "ensure_orders_review_submitted_column", _ensure_orders_review_submitted_column)
+        await _run_migration(
+            db, 22, "ensure_tickets_last_client_remind_at_column", _ensure_tickets_last_client_remind_at_column
+        )
         await db.commit()
 
 
@@ -1269,96 +1291,18 @@ async def list_reviewable_orders_for_client(
 async def list_reviewable_order_tags_for_client(
     guild_id: int, client_id: int, limit: int = 50
 ) -> list[dict[str, Any]]:
-    """Union of registered orders and fallback tags from vouches, minus reviewed."""
-    t0 = time.perf_counter()
-    async with aiosqlite.connect(DATABASE_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        try:
-            cur = await db.execute(
-                """
-                SELECT order_id, ticket_channel_id, source, last_ts
-                FROM (
-                    SELECT
-                        o.order_id AS order_id,
-                        o.ticket_channel_id AS ticket_channel_id,
-                        'order' AS source,
-                        COALESCE(o.updated_at, o.created_at) AS last_ts
-                    FROM orders o
-                    WHERE o.client_id = ?
-                      AND o.deleted_at IS NULL
-                    UNION ALL
-                    SELECT
-                        v.order_id AS order_id,
-                        NULL AS ticket_channel_id,
-                        'fallback' AS source,
-                        v.created_at AS last_ts
-                    FROM vouches v
-                    WHERE v.client_id = ?
-                      AND COALESCE(v.order_id, '') <> ''
-                ) x
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM commission_reviews r
-                    WHERE r.guild_id = ? AND r.reviewer_id = ? AND r.order_id = x.order_id
-                )
-                ORDER BY datetime(last_ts) DESC
-                LIMIT ?
-                """,
-                (int(client_id), int(client_id), int(guild_id), int(client_id), int(limit)),
-            )
-        except aiosqlite.OperationalError as e:
-            if "no such column: o.deleted_at" not in str(e):
-                raise
-            cur = await db.execute(
-                """
-                SELECT order_id, ticket_channel_id, source, last_ts
-                FROM (
-                    SELECT
-                        o.order_id AS order_id,
-                        o.ticket_channel_id AS ticket_channel_id,
-                        'order' AS source,
-                        COALESCE(o.updated_at, o.created_at) AS last_ts
-                    FROM orders o
-                    WHERE o.client_id = ?
-                    UNION ALL
-                    SELECT
-                        v.order_id AS order_id,
-                        NULL AS ticket_channel_id,
-                        'fallback' AS source,
-                        v.created_at AS last_ts
-                    FROM vouches v
-                    WHERE v.client_id = ?
-                      AND COALESCE(v.order_id, '') <> ''
-                ) x
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM commission_reviews r
-                    WHERE r.guild_id = ? AND r.reviewer_id = ? AND r.order_id = x.order_id
-                )
-                ORDER BY datetime(last_ts) DESC
-                LIMIT ?
-                """,
-                (int(client_id), int(client_id), int(guild_id), int(client_id), int(limit)),
-            )
-        rows = await cur.fetchall()
-        dedup: set[str] = set()
-        out: list[dict[str, Any]] = []
-        for r in rows:
-            oid = str(r["order_id"] or "").strip()
-            if not oid or oid in dedup:
-                continue
-            dedup.add(oid)
-            out.append(
-                {
-                    "order_id": oid,
-                    "ticket_channel_id": r["ticket_channel_id"],
-                    "source": str(r["source"] or "order"),
-                    "last_ts": r["last_ts"],
-                }
-            )
-            if len(out) >= int(limit):
-                break
-    await _record_slow_query(
-        "list_reviewable_order_tags_for_client", (time.perf_counter() - t0) * 1000.0
-    )
+    """Registered orders only: vouched and not yet reviewed (see list_orders_eligible_for_review)."""
+    rows = await list_orders_eligible_for_review(guild_id, client_id, limit)
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        out.append(
+            {
+                "order_id": str(r.get("order_id") or ""),
+                "ticket_channel_id": r.get("ticket_channel_id"),
+                "source": "order",
+                "last_ts": r.get("updated_at") or r.get("created_at"),
+            }
+        )
     return out
 
 
@@ -1436,6 +1380,7 @@ _TICKET_UPDATEABLE: frozenset[str] = frozenset(
         "close_approved_by_client",
         "close_approved_at",
         "assigned_staff_id",
+        "last_client_remind_at",
     }
 )
 
@@ -2120,7 +2065,25 @@ async def insert_commission_review(
             ),
         )
         await db.commit()
-        return int(cur.lastrowid)
+        pk = int(cur.lastrowid)
+    await mark_order_review_submitted(str(order_id))
+    return pk
+
+
+async def mark_order_review_submitted(order_id: str) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        try:
+            await db.execute(
+                """
+                UPDATE orders SET review_submitted = 1, updated_at = ?
+                WHERE order_id = ? AND deleted_at IS NULL
+                """,
+                (_utc_now(), str(order_id)),
+            )
+            await db.commit()
+        except aiosqlite.OperationalError as e:
+            if "no such column: review_submitted" not in str(e):
+                raise
 
 
 async def has_commission_review(guild_id: int, reviewer_id: int, order_id: str) -> bool:
@@ -2147,6 +2110,116 @@ async def has_vouch_for_order(client_id: int, order_id: str) -> bool:
             (int(client_id), str(order_id)),
         )
         return await cur.fetchone() is not None
+
+
+async def resolve_order_for_client_vouch(
+    guild_id: int, client_id: int, current_channel_id: int | None
+) -> dict[str, Any] | None:
+    """Prefer order tied to current ticket channel; else most recent order in this guild."""
+    if current_channel_id is not None:
+        row = await get_order_for_ticket_client(int(current_channel_id), int(client_id))
+        if row:
+            return row
+    t0 = time.perf_counter()
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        try:
+            cur = await db.execute(
+                """
+                SELECT o.* FROM orders o
+                INNER JOIN tickets t ON t.channel_id = o.ticket_channel_id
+                WHERE o.client_id = ?
+                  AND t.guild_id = ?
+                  AND t.closed_at IS NULL AND t.deleted_at IS NULL
+                  AND o.deleted_at IS NULL
+                ORDER BY datetime(o.updated_at) DESC, datetime(o.created_at) DESC
+                LIMIT 5
+                """,
+                (int(client_id), int(guild_id)),
+            )
+        except aiosqlite.OperationalError as e:
+            if "no such column: o.deleted_at" not in str(e):
+                raise
+            cur = await db.execute(
+                """
+                SELECT o.* FROM orders o
+                INNER JOIN tickets t ON t.channel_id = o.ticket_channel_id
+                WHERE o.client_id = ?
+                  AND t.guild_id = ?
+                  AND t.closed_at IS NULL
+                ORDER BY datetime(o.updated_at) DESC, datetime(o.created_at) DESC
+                LIMIT 5
+                """,
+                (int(client_id), int(guild_id)),
+            )
+        rows = await cur.fetchall()
+        out = [dict(r) for r in rows]
+    await _record_slow_query(
+        "resolve_order_for_client_vouch", (time.perf_counter() - t0) * 1000.0
+    )
+    return out[0] if out else None
+
+
+async def list_orders_eligible_for_review(
+    guild_id: int, client_id: int, limit: int = 25
+) -> list[dict[str, Any]]:
+    """Registered orders with a vouch, not yet reviewed (DB + commission_reviews)."""
+    t0 = time.perf_counter()
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        try:
+            cur = await db.execute(
+                """
+                SELECT o.* FROM orders o
+                INNER JOIN tickets t ON t.channel_id = o.ticket_channel_id
+                WHERE o.client_id = ?
+                  AND t.guild_id = ?
+                  AND t.deleted_at IS NULL
+                  AND o.deleted_at IS NULL
+                  AND IFNULL(o.review_submitted, 0) = 0
+                  AND EXISTS (
+                      SELECT 1 FROM vouches v
+                      WHERE v.client_id = o.client_id AND v.order_id = o.order_id
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM commission_reviews r
+                      WHERE r.guild_id = ? AND r.reviewer_id = ? AND r.order_id = o.order_id
+                  )
+                ORDER BY datetime(o.updated_at) DESC
+                LIMIT ?
+                """,
+                (int(client_id), int(guild_id), int(guild_id), int(client_id), int(limit)),
+            )
+        except aiosqlite.OperationalError as e:
+            err = str(e)
+            if "no such column: o.review_submitted" in err or "no such column: o.deleted_at" in err:
+                cur = await db.execute(
+                    """
+                    SELECT o.* FROM orders o
+                    INNER JOIN tickets t ON t.channel_id = o.ticket_channel_id
+                    WHERE o.client_id = ?
+                      AND t.guild_id = ?
+                      AND EXISTS (
+                          SELECT 1 FROM vouches v
+                          WHERE v.client_id = o.client_id AND v.order_id = o.order_id
+                      )
+                      AND NOT EXISTS (
+                          SELECT 1 FROM commission_reviews r
+                          WHERE r.guild_id = ? AND r.reviewer_id = ? AND r.order_id = o.order_id
+                      )
+                    ORDER BY datetime(o.updated_at) DESC
+                    LIMIT ?
+                    """,
+                    (int(client_id), int(guild_id), int(guild_id), int(client_id), int(limit)),
+                )
+            else:
+                raise
+        rows = await cur.fetchall()
+        out = [dict(r) for r in rows]
+    await _record_slow_query(
+        "list_orders_eligible_for_review", (time.perf_counter() - t0) * 1000.0
+    )
+    return out
 
 
 # --- Loyalty ---

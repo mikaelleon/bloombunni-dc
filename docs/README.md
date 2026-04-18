@@ -2,6 +2,8 @@
 
 Technical reference for the **Mika Shop** Discord bot (code under `bot/`). Operator setup is also summarized in the project [`README.md`](../README.md) if present.
 
+**Full ordering narrative (tickets → queue → Done/close → vouch → review):** [`ordering-process.md`](ordering-process.md).
+
 ## Table of contents
 
 - [Core runtime](#core-runtime)
@@ -22,9 +24,10 @@ Technical reference for the **Mika Shop** Discord bot (code under `bot/`). Opera
 
 ## Feature modules
 
-**Operator playbook (recommended):** [situational-flows.md](situational-flows.md) — who does what for owner/admin, staff, and clients.
+**Operator playbook (recommended):** [ordering-process.md](ordering-process.md) — **full detailed** ordering + feedback story by role. Shorter tables: [situational-flows.md](situational-flows.md).
 
-| [situational-flows.md](situational-flows.md) | **Owner vs staff vs client** — ticket, vouch, review, loyalty, setup (situational playbook) |
+| [ordering-process.md](ordering-process.md) | **Comprehensive guide** — tickets, queue, payment, Done/close, vouch, review, loyalty; owner, staff, client |
+| [situational-flows.md](situational-flows.md) | **Owner vs staff vs client** — ticket, vouch, review, loyalty, setup (compact playbook) |
 | [quotes-and-pricing.md](quotes-and-pricing.md) | `/quote`, `/pricelist`, `/setprice`, …, `quote_compute` |
 | [tickets-and-panels.md](tickets-and-panels.md) | `/ticketpanel`, `/ticketbutton`, `/ticketform`, `/deploy`, ticket flow, `/payment`, `/stage`, `/close` |
 | [queue-templates-loyalty.md](queue-templates-loyalty.md) | `/queue`, order dropdown, templates, `/loyalty`, `/setorderprefix` |

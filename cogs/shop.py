@@ -77,21 +77,26 @@ class ShopCog(commands.Cog, name="ShopCog"):
         except (discord.NotFound, discord.Forbidden):
             self._status_message = None
 
-    async def run_setup_tos(
-        self, interaction: discord.Interaction, ch: discord.TextChannel
-    ) -> None:
-        """Called from `/deploy tos` with a resolved TOS text channel."""
+    async def deploy_tos_panel(self, ch: discord.TextChannel) -> discord.Message:
+        """Post TOS embed + agree button; persist panel row."""
         text = (
             config.TOS_FILE.read_text(encoding="utf-8")
             if config.TOS_FILE.exists()
             else "TOS text missing."
         )
         emb = discord.Embed(title="Terms of Service", description=text[:4000], color=DANGER)
+        msg = await ch.send(embed=emb, view=TOSAgreeView())
+        await db.set_persist_panel("tos", ch.id, msg.id)
+        return msg
+
+    async def run_setup_tos(
+        self, interaction: discord.Interaction, ch: discord.TextChannel
+    ) -> None:
+        """Called from `/deploy tos` with a resolved TOS text channel."""
+        await self.deploy_tos_panel(ch)
         await interaction.response.send_message(
             embed=success_embed("Posted", "TOS panel deployed."), ephemeral=True
         )
-        msg = await ch.send(embed=emb, view=TOSAgreeView())
-        await db.set_persist_panel("tos", ch.id, msg.id)
 
     def _embed(self, st: dict) -> discord.Embed:
         open_ = bool(st.get("is_open", 0))

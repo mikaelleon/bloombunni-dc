@@ -14,6 +14,33 @@ from utils.checks import is_staff
 from utils.embeds import PRIMARY, info_embed, success_embed
 
 
+class LeaveReviewView(discord.ui.View):
+    """# CHANGED: button path for /review flow (cursor-prompt.md §6)."""
+
+    def __init__(self, cog: "VouchCog", order_id: str) -> None:
+        super().__init__(timeout=3600.0)
+        self.cog = cog
+        self.order_id = order_id
+
+    @discord.ui.button(label="Leave a Review", style=discord.ButtonStyle.success, row=0)
+    async def leave_review_btn(
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        view = ReviewRatingsView(self.cog, self.order_id)
+        await interaction.response.send_message(
+            embed=info_embed(
+                "Review form (step 1/3)",
+                "Rate each item from **1** to **5**:\n"
+                "• Artwork quality\n"
+                "• Communication\n"
+                "• Turnaround time\n"
+                "• Process smoothness",
+            ),
+            view=view,
+            ephemeral=True,
+        )
+
+
 class VouchPages(discord.ui.View):
     def __init__(self, user_id: int, pages: list[discord.Embed]) -> None:
         super().__init__(timeout=180.0)
@@ -103,34 +130,6 @@ class VouchCog(commands.Cog, name="VouchCog"):
                 break
         return out
 
-    @commands.Cog.listener()
-    async def on_message(self, message: discord.Message) -> None:
-        if message.author.bot or not message.guild:
-            return
-        vcid = await db.get_guild_setting(message.guild.id, gk.VOUCHES_CHANNEL)
-        if not vcid or message.channel.id != int(vcid):
-            return
-        pvr = await db.get_guild_setting(message.guild.id, gk.PLEASE_VOUCH_ROLE)
-        role = message.guild.get_role(int(pvr)) if pvr else None
-        if not role or not isinstance(message.author, discord.Member):
-            return
-        if role not in message.author.roles:
-            return
-        try:
-            await message.author.remove_roles(role, reason="Vouched")
-        except discord.Forbidden:
-            return
-        await db.insert_vouch(message.author.id, None, message.content[:2000])
-        try:
-            from cogs.loyalty_cards import apply_vouch_to_loyalty_card
-
-            await apply_vouch_to_loyalty_card(message.guild, message.author.id)
-        except Exception:
-            pass
-        await message.reply(
-            f"✅ Thanks for vouching, {message.author.mention}! Your PlsVouch role has been removed."
-        )
-
     @app_commands.command(name="vouch", description="Send vouch and unlock review form")
     @app_commands.describe(
         staff="Staff who handled order (optional)",
@@ -148,39 +147,33 @@ class VouchCog(commands.Cog, name="VouchCog"):
             await interaction.response.send_message("Guild only command.", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
+        # CHANGED: legacy vouches-channel listener removed; only /vouch and /vouchstaff.
         pvr = await db.get_guild_setting(interaction.guild.id, gk.PLEASE_VOUCH_ROLE)
         pvr_role = interaction.guild.get_role(int(pvr)) if pvr else None
         if not pvr_role or pvr_role not in interaction.user.roles:
             await interaction.followup.send(
-                embed=info_embed("Heads up", "You need `Please vouch` role to use this command."),
+                embed=info_embed(
+                    "Heads up",
+                    "You need `Please vouch` role. If you believe this is wrong, contact staff.",
+                ),
                 ephemeral=True,
             )
             return
-        if not isinstance(interaction.channel, discord.TextChannel):
+        cur_ch_id = interaction.channel.id if isinstance(interaction.channel, discord.TextChannel) else None
+        row = await db.resolve_order_for_client_vouch(interaction.guild.id, interaction.user.id, cur_ch_id)
+        if not row or not row.get("order_id"):
             await interaction.followup.send(
-                embed=info_embed("Ticket only", "Use `/vouch` inside your ticket channel."),
+                embed=info_embed(
+                    "No registered order",
+                    "This ticket has no registered order — ask staff to confirm payment first.",
+                ),
                 ephemeral=True,
             )
             return
-        ticket = await db.get_ticket_by_channel(interaction.channel.id)
-        if not ticket:
-            await interaction.followup.send(
-                embed=info_embed("Not a ticket", "This channel is not linked to active ticket."),
-                ephemeral=True,
-            )
-            return
-        if int(ticket.get("client_id") or 0) != interaction.user.id:
-            await interaction.followup.send(
-                embed=info_embed("Not your ticket", "Only ticket owner can send `/vouch` here."),
-                ephemeral=True,
-            )
-            return
-        row = await db.get_order_for_ticket_client(interaction.channel.id, interaction.user.id)
-        order_id = str((row or {}).get("order_id") or interaction.channel.name)
-        order_source = "registered order" if row else "ticket-name fallback"
+        order_id = str(row["order_id"])
         await db.insert_vouch(interaction.user.id, order_id, message)
         vcid = await db.get_guild_setting(interaction.guild.id, gk.VOUCHES_CHANNEL)
-        ch = interaction.guild.get_channel(int(vcid)) if vcid else None
+        vch = interaction.guild.get_channel(int(vcid)) if vcid else None
         owner_mention = (
             f"<@{interaction.guild.owner_id}>"
             if interaction.guild.owner_id
@@ -194,28 +187,36 @@ class VouchCog(commands.Cog, name="VouchCog"):
         )
         emb.add_field(name="Client", value=interaction.user.mention, inline=False)
         emb.add_field(name="Order ID", value=f"`{order_id}`", inline=True)
-        emb.add_field(name="Order source", value=order_source, inline=True)
         emb.add_field(name="Staff", value=staff_mention, inline=True)
         if proof and (proof.content_type or "").startswith("image/"):
             emb.set_image(url=proof.url)
-        if isinstance(ch, discord.TextChannel):
-            await ch.send(
-                content=f"{owner_mention} {staff.mention if staff else ''}".strip(),
-                embed=emb,
-            )
+        warn_lines: list[str] = []
+        if isinstance(vch, discord.TextChannel):
+            try:
+                await vch.send(
+                    content=f"{owner_mention} {staff.mention if staff else ''}".strip(),
+                    embed=emb,
+                )
+            except discord.Forbidden:
+                warn_lines.append(
+                    "Could not post to vouches channel — bot lacks permission (tell an admin)."
+                )
+        elif vcid:
+            warn_lines.append("Vouches channel missing or invalid — map in `/setup` / `/config`.")
         fpr = await db.get_guild_setting(interaction.guild.id, gk.FEEDBACK_PENDING_ROLE)
         fpr_role = interaction.guild.get_role(int(fpr)) if fpr else None
         if fpr_role and fpr_role not in interaction.user.roles:
             try:
                 await interaction.user.add_roles(
-                    fpr_role, reason="Client sent vouch and can now leave review"
+                    fpr_role, reason="Optional cosmetic after vouch"
                 )
             except discord.Forbidden:
-                pass
+                warn_lines.append(
+                    "Could not assign Feedback pending role — move bot role higher in Server Settings."
+                )
         try:
             await interaction.user.send(
-                "Thanks for vouching. You can now use `/review` to leave feedback. "
-                "After review, you may receive special role and exclusive discount code."
+                "Thanks for vouching. You can use `/review` or the **Leave a Review** button in your ticket."
             )
         except discord.Forbidden:
             pass
@@ -225,14 +226,29 @@ class VouchCog(commands.Cog, name="VouchCog"):
             await apply_vouch_to_loyalty_card(interaction.guild, interaction.user.id)
         except Exception:
             pass
+        body = (
+            f"Posted for order `{order_id}`. You can now leave a review with `/review`.\n"
+            + ("\n".join(warn_lines) if warn_lines else "")
+        )
         await interaction.followup.send(
-            embed=success_embed(
-                "Vouch sent",
-                f"Posted to vouches channel using `{order_id}` ({order_source}). "
-                "Check DMs for review instructions.",
-            ),
+            embed=success_embed("Vouch sent", body[:3800]),
             ephemeral=True,
         )
+        tcid = row.get("ticket_channel_id")
+        post_ch = None
+        if tcid:
+            c = interaction.guild.get_channel(int(tcid))
+            if isinstance(c, discord.TextChannel):
+                post_ch = c
+        if post_ch:
+            try:
+                await post_ch.send(
+                    content=f"{interaction.user.mention} — thanks for vouching! "
+                    "You can now leave a review with `/review` or use the button below.",
+                    view=LeaveReviewView(self, order_id),
+                )
+            except discord.Forbidden:
+                pass
 
     @app_commands.command(name="vouchstaff", description="Manually log vouch (staff)")
     @app_commands.describe(member="Client", order_id="Related order ID", message="Vouch text")
@@ -294,7 +310,7 @@ class VouchCog(commands.Cog, name="VouchCog"):
         if not interaction.guild:
             return False, "Guild only command."
         if await db.has_commission_review(interaction.guild.id, interaction.user.id, order_id):
-            return False, "Review already submitted for this order."
+            return False, "You've already submitted a review for this order."
         discount_code = f"BB-{order_id}-{secrets.token_hex(2).upper()}"
         await db.insert_commission_review(
             guild_id=interaction.guild.id,
@@ -362,24 +378,33 @@ class VouchCog(commands.Cog, name="VouchCog"):
         if not interaction.guild:
             await interaction.response.send_message("Guild only command.", ephemeral=True)
             return
-        pending_id = await db.get_guild_setting(interaction.guild.id, gk.FEEDBACK_PENDING_ROLE)
-        pending_role = interaction.guild.get_role(int(pending_id)) if pending_id else None
-        if pending_role and pending_role not in interaction.user.roles:
+        # CHANGED: gate with vouch + DB row; not Feedback-pending role (cursor-prompt.md §6).
+        row = await db.get_order(order_id)
+        if not row or int(row.get("client_id") or 0) != interaction.user.id:
             await interaction.response.send_message(
-                "You need `Feedback pending` role to use `/review`.", ephemeral=True
+                embed=info_embed(
+                    "Cannot review",
+                    "Order not found for your account. Pick an order from the list.",
+                ),
+                ephemeral=True,
             )
             return
-        row = await db.get_order(order_id)
-        has_registered_order = bool(row and int(row.get("client_id") or 0) == interaction.user.id)
-        has_fallback_tag = await db.has_vouch_for_order(interaction.user.id, order_id)
-        if not has_registered_order and not has_fallback_tag:
+        if int(row.get("review_submitted") or 0) != 0:
             await interaction.response.send_message(
-                "Order/tag not assigned to you.", ephemeral=True
+                "You've already submitted a review for this order.",
+                ephemeral=True,
+            )
+            return
+        if not await db.has_vouch_for_order(interaction.user.id, order_id):
+            await interaction.response.send_message(
+                "You haven't vouched for this order yet.",
+                ephemeral=True,
             )
             return
         if await db.has_commission_review(interaction.guild.id, interaction.user.id, order_id):
             await interaction.response.send_message(
-                "Review already submitted for this order.", ephemeral=True
+                "You've already submitted a review for this order.",
+                ephemeral=True,
             )
             return
         view = ReviewRatingsView(self, order_id)

@@ -603,48 +603,26 @@ class QueueCog(commands.Cog, name="QueueCog"):
             content="✅ Order marked as completed.", ephemeral=True
         )
 
-    @app_commands.command(name="queue", description="Register order in queue from an open ticket (staff)")
-    @app_commands.describe(
-        handler="Staff handling the order",
-        buyer="Buyer (client)",
-        amount="Amount / quantity description",
-        item="Item / commission description",
-        mop="Mode of payment label",
-        price="Price text",
-        channel="Ticket channel for this order",
+    @app_commands.command(
+        name="queue",
+        description="Show queue channel and how orders are registered (staff)",
     )
     @is_staff()
-    async def queue_cmd(
-        self,
-        interaction: discord.Interaction,
-        handler: discord.Member,
-        buyer: discord.Member,
-        amount: str,
-        item: str,
-        mop: str,
-        price: str,
-        channel: discord.TextChannel,
-    ) -> None:
-        await interaction.response.defer(ephemeral=True)
-        assert interaction.guild
-        oid, err = await register_order_in_ticket_channel(
-            self,
-            interaction.guild,
-            channel,
-            handler,
-            buyer,
-            amount,
-            item,
-            mop,
-            price,
-        )
-        if err:
-            await interaction.followup.send(
-                embed=user_hint("Queue", err), ephemeral=True
-            )
+    async def queue_cmd(self, interaction: discord.Interaction) -> None:
+        """Orders register only via `/payment confirm` in the buyer ticket (single path)."""
+        if not interaction.guild:
             return
+        await interaction.response.defer(ephemeral=True)
+        qcid = await db.get_guild_setting(interaction.guild.id, gk.QUEUE_CHANNEL)
+        q_mention = f"<#{qcid}>" if qcid else "_Not set — map **queue channel** in `/setup` or `/config`._"
         await interaction.followup.send(
-            embed=success_embed("Queue", f"Order `{oid}` registered."), ephemeral=True
+            embed=info_embed(
+                "Queue",
+                f"**Register orders** with **`/payment confirm`** inside the buyer’s ticket after payment is received.\n"
+                f"**Queue list:** {q_mention}\n"
+                f"_This command no longer creates orders — avoids duplicate registration paths._",
+            ),
+            ephemeral=True,
         )
 
     @app_commands.command(

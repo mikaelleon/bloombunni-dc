@@ -18,7 +18,8 @@ A Discord bot for running a **small art commission shop** in your server: agree 
 10. [Hosting the bot online](#hosting-the-bot-online)
 11. [Files and folders (optional)](#files-and-folders-optional)
 12. [Situational flows (who does what)](#situational-flows-who-does-what)
-13. [More documentation](#more-documentation)
+13. [Ordering process (full guide)](#ordering-process-full-guide)
+14. [More documentation](#more-documentation)
 
 ---
 
@@ -361,7 +362,7 @@ Slash commands are typed with **`/`** in Discord. Only commands that exist for y
 | **`/loyaltytop`** | Top 10 clients by completed orders. |
 | **`/vouches`** *member* | Lists saved vouches for a member. |
 | **`/vouch`** | Client: post vouch from **own ticket** (needs **Please vouch**); order ID resolved automatically. |
-| **`/review`** | Client: submit private review (needs **Feedback pending** when configured); see [`docs/situational-flows.md`](docs/situational-flows.md). |
+| **`/review`** | Client: submit private review (needs **Feedback pending** when configured); see [`docs/ordering-process.md`](docs/ordering-process.md). |
 | **`/close`** | Closes the **current ticket** if you are the ticket owner **or** staff (same rules as the Close button). |
 
 *Also:* anyone can use **payment panel buttons** (GCash / PayPal / Ko-fi) and the **TOS agree** button when those messages exist.
@@ -447,12 +448,19 @@ For **Render**, Railway, or similar: run **`python main.py`** as the start comma
 
 ## Situational flows (who does what)
 
-End-to-end behavior by **owner/admin**, **staff**, and **client** (tickets, **Done** vs close, vouch, review, loyalty cards, troubleshooting) lives in **[`docs/situational-flows.md`](docs/situational-flows.md)**. Use it as the operator playbook alongside the command tables below.
+Compact **who-does-what** tables by **owner/admin**, **staff**, and **client** (tickets, **Done** vs close, vouch, review, loyalty cards, troubleshooting) live in **[`docs/situational-flows.md`](docs/situational-flows.md)**.
+
+---
+
+## Ordering process (full guide)
+
+Step-by-step **commission ordering** narrative—setup, opening a ticket, queue and payment, active work, **Done** vs **close**, **Please vouch**, client **`/vouch`** (registered order vs ticket-name fallback), **`/vouchstaff`**, legacy vouches channel, **`/review`**, loyalty (simple + stamp cards), glossary, and troubleshooting—is in **[`docs/ordering-process.md`](docs/ordering-process.md)**. Use it for onboarding staff and documenting your shop’s expected workflow.
 
 ---
 
 ## More documentation
 
+- [`docs/ordering-process.md`](docs/ordering-process.md) — **full ordering + vouch + review** guide by role.
 - [`docs/situational-flows.md`](docs/situational-flows.md) — situational flows by role (owner, staff, client).
 - [`docs/README.md`](docs/README.md) — index of extra docs.
 - [`docs/database-reference.md`](docs/database-reference.md) — SQLite tables overview (includes embed/button builder tables).

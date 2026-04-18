@@ -195,17 +195,18 @@ async def issue_loyalty_card_for_ticket_closure(
     guild: discord.Guild,
     ticket: dict[str, Any],
     client: discord.Member | None,
-) -> None:
+) -> bool:
+    """Post loyalty card for this ticket. Returns True if a new card was issued."""
     if not client:
-        return
+        return False
     gid = guild.id
     imgs = await db.list_loyalty_card_images(gid)
     if not _local_lcstate_path(0).exists() and (not imgs or 0 not in imgs):
-        return
+        return False
     ch = await resolve_loyalty_channel(guild)
     if not isinstance(ch, discord.TextChannel):
         log.warning("Loyalty card skipped (no channel): guild_id=%s", gid)
-        return
+        return False
     try:
         # Idempotency: if same ticket already issued active card, do nothing.
         t_ch = ticket.get("channel_id")
@@ -213,13 +214,13 @@ async def issue_loyalty_card_for_ticket_closure(
         existing = await db.get_active_loyalty_cards_for_user(gid, client.id)
         for row in existing:
             if t_ch_id is not None and int(row.get("ticket_channel_id") or 0) == t_ch_id:
-                return
+                return False
 
         await remove_active_loyalty_cards_for_user(guild, client.id)
         card_number = await db.allocate_loyalty_card_number(gid)
         max_idx = await db.loyalty_card_max_stamp_index(gid)
         if max_idx is None:
-            return
+            return False
         void_h = await db.get_guild_setting(gid, gk.LOYALTY_CARD_VOID_HOURS) or 0
         void_deadline: int | None = None
         if int(void_h) > 0:
@@ -233,6 +234,10 @@ async def issue_loyalty_card_for_ticket_closure(
             stamps=0,
             max_stamps=max_idx,
         )
+        if int(void_h) > 0:
+            body = (
+                f"{body}\n\n_If no vouch within **{int(void_h)}** hours, this card may be voided (server rules)._"
+            )[:2000]
         data, ext = await _load_loyalty_image_bytes(gid, 0, imgs)
         fp = discord.File(io.BytesIO(data), filename=f"loyalty-LC{card_number:03d}-0.{ext}")
         pk = await db.insert_loyalty_card(
@@ -263,8 +268,10 @@ async def issue_loyalty_card_for_ticket_closure(
             pk,
             {"message_id": int(msg.id), "thread_id": thread_id},
         )
+        return True
     except Exception:
         log.exception("issue_loyalty_card_for_ticket_closure failed guild_id=%s", gid)
+        return False
 
 
 async def apply_vouch_to_loyalty_card(

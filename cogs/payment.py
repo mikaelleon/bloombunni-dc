@@ -92,6 +92,17 @@ class PaymentCog(commands.Cog, name="PaymentCog"):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
+    async def deploy_payment_panel(self, ch: discord.TextChannel) -> discord.Message:
+        """Post payment panel; persist row. Caller must verify `is_payment_config_complete`."""
+        emb = discord.Embed(
+            title="Mode of Payment",
+            description="Choose a method below for details (ephemeral).",
+            color=PRIMARY,
+        )
+        msg = await ch.send(embed=emb, view=PaymentView())
+        await db.set_persist_panel("payment", ch.id, msg.id)
+        return msg
+
     async def run_setup_payment(
         self, interaction: discord.Interaction, ch: discord.TextChannel
     ) -> None:
@@ -105,16 +116,10 @@ class PaymentCog(commands.Cog, name="PaymentCog"):
                 ephemeral=True,
             )
             return
-        emb = discord.Embed(
-            title="Mode of Payment",
-            description="Choose a method below for details (ephemeral).",
-            color=PRIMARY,
-        )
+        await self.deploy_payment_panel(ch)
         await interaction.response.send_message(
             embed=success_embed("Posted", "Payment panel deployed."), ephemeral=True
         )
-        msg = await ch.send(embed=emb, view=PaymentView())
-        await db.set_persist_panel("payment", ch.id, msg.id)
 
 
 async def setup(bot: commands.Bot) -> None:

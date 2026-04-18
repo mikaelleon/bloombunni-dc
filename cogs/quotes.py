@@ -576,7 +576,7 @@ class QuotesCog(commands.Cog, name="QuotesCog"):
 
     @quote.command(
         name="recalculate",
-        description="Re-post the ticket quote from the price matrix (staff, in ticket channel)",
+        description="Refresh ticket quote from price matrix (ticket owner or staff; in ticket channel)",
     )
     @app_commands.describe(
         tier="Rendering tier (leave empty to keep current)",
@@ -600,7 +600,6 @@ class QuotesCog(commands.Cog, name="QuotesCog"):
             app_commands.Choice(name="Ko-fi", value="Ko-fi"),
         ],
     )
-    @is_staff()
     async def quote_recalculate_cmd(
         self,
         interaction: discord.Interaction,
@@ -661,6 +660,49 @@ class QuotesCog(commands.Cog, name="QuotesCog"):
         if not client:
             await interaction.response.send_message(
                 embed=user_hint("Member missing", "Buyer is not in the server."), ephemeral=True
+            )
+            return
+
+        staff_role_id = await db.get_guild_setting(interaction.guild.id, gk.STAFF_ROLE)
+        staff_role = (
+            interaction.guild.get_role(int(staff_role_id))
+            if staff_role_id
+            else None
+        )
+        is_staff_u = (
+            staff_role is not None
+            and isinstance(interaction.user, discord.Member)
+            and staff_role in interaction.user.roles
+        )
+        is_owner = interaction.user.id == int(ticket["client_id"])
+        if not is_staff_u and not is_owner:
+            await interaction.response.send_message(
+                embed=user_warn(
+                    "Not your ticket",
+                    "Only the ticket owner or staff can refresh the quote here.",
+                ),
+                ephemeral=True,
+            )
+            return
+        has_overrides = any(
+            x is not None
+            for x in (
+                tier,
+                characters,
+                background,
+                rush,
+                pay_currency,
+                payment_method,
+            )
+        )
+        if has_overrides and not is_staff_u:
+            await interaction.response.send_message(
+                embed=user_hint(
+                    "Staff only",
+                    "Changing tier, characters, background, rush, or currency options requires staff. "
+                    "Ask staff to run **`/quote recalculate`** with the new details.",
+                ),
+                ephemeral=True,
             )
             return
 

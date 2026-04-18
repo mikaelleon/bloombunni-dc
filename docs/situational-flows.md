@@ -2,6 +2,8 @@
 
 This document describes **who does what** in common situations. It complements [`README.md`](../README.md) (overview and command lists) with **end-to-end behavior**, not every slash option.
 
+For a **long-form narrative** of the same pipeline (glossary, phases, troubleshooting), see **[`ordering-process.md`](ordering-process.md)**.
+
 **Roles referenced**
 
 - **Owner / admin:** server owner or **Administrator** (some commands also allow **Manage Server** or configured **Staff** for `/config`).
@@ -133,6 +135,7 @@ This document describes **who does what** in common situations. It complements [
 
 ## See also
 
+- [`ordering-process.md`](ordering-process.md) — comprehensive ordering + vouch + review guide.
 - [`README.md`](../README.md) — progress, full command tables, setup.
 - [`vouches.md`](vouches.md) — technical detail for `cogs/vouch.py`.
 - [`tickets-and-panels.md`](tickets-and-panels.md) — ticket UI and commands.

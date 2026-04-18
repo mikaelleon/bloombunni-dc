@@ -114,7 +114,10 @@ class DropCog(commands.Cog, name="DropCog"):
                 ch = interaction.guild.get_channel(int(o["ticket_channel_id"]))
                 if isinstance(ch, discord.TextChannel):
                     await ch.send(
-                        embed=info_embed("Drop sent", f"Delivery DM sent to {member.mention}.")
+                        embed=info_embed(
+                            "Delivery link sent",
+                            f"Staff sent a delivery link to {member.mention} by DM (logged in bot records).",
+                        )
                     )
 
     @app_commands.command(name="drophistory", description="Show drops for a member (staff)")
