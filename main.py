@@ -19,6 +19,7 @@ from cogs.payment import PaymentView
 from cogs.queue import register_order_status_views
 from cogs.shop import TOSAgreeView
 from cogs.tickets import register_ticket_persistent_views
+from cogs.vouch import register_leave_review_views
 from keep_alive import keep_alive
 from utils.logging_setup import get_logger, setup_logging
 
@@ -156,6 +157,12 @@ class MikaBot(commands.Bot):
         except Exception:
             self.startup_health["views_failed"].append("order status views")
             log.exception("Failed to register order status views")
+        try:
+            await register_leave_review_views(self)
+            self.startup_health["views_ok"].append("leave review views")
+        except Exception:
+            self.startup_health["views_failed"].append("leave review views")
+            log.exception("Failed to register leave review views")
 
 
 bot = MikaBot()

@@ -1335,6 +1335,64 @@ async def list_orders_for_status_views() -> list[dict[str, Any]]:
     return out
 
 
+async def list_orders_for_leave_review_views() -> list[dict[str, Any]]:
+    """Orders that may still have a Leave a Review button in the ticket channel (vouch logged, review not submitted)."""
+    t0 = time.perf_counter()
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        try:
+            cur = await db.execute(
+                """
+                SELECT DISTINCT o.order_id AS order_id
+                FROM orders o
+                INNER JOIN tickets t ON t.channel_id = o.ticket_channel_id
+                WHERE t.closed_at IS NULL
+                  AND t.deleted_at IS NULL
+                  AND o.deleted_at IS NULL
+                  AND IFNULL(o.review_submitted, 0) = 0
+                  AND EXISTS (
+                      SELECT 1 FROM vouches v
+                      WHERE v.client_id = o.client_id AND v.order_id = o.order_id
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM commission_reviews r
+                      WHERE r.guild_id = t.guild_id
+                        AND r.reviewer_id = o.client_id
+                        AND r.order_id = o.order_id
+                  )
+                """,
+            )
+        except aiosqlite.OperationalError as e:
+            err = str(e)
+            if "no such column" not in err:
+                raise
+            cur = await db.execute(
+                """
+                SELECT DISTINCT o.order_id AS order_id
+                FROM orders o
+                INNER JOIN tickets t ON t.channel_id = o.ticket_channel_id
+                WHERE t.closed_at IS NULL
+                  AND t.deleted_at IS NULL
+                  AND EXISTS (
+                      SELECT 1 FROM vouches v
+                      WHERE v.client_id = o.client_id AND v.order_id = o.order_id
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM commission_reviews r
+                      WHERE r.guild_id = t.guild_id
+                        AND r.reviewer_id = o.client_id
+                        AND r.order_id = o.order_id
+                  )
+                """,
+            )
+        rows = await cur.fetchall()
+        out = [dict(r) for r in rows]
+    await _record_slow_query(
+        "list_orders_for_leave_review_views", (time.perf_counter() - t0) * 1000.0
+    )
+    return out
+
+
 async def count_active_queue_orders(guild_id: int) -> int:
     async with aiosqlite.connect(DATABASE_PATH) as db:
         cur = await db.execute(

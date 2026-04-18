@@ -173,7 +173,7 @@ class OrderStatusView(discord.ui.View):
             return
 
         cog = interaction.client.get_cog("QueueCog")
-        if not isinstance(cog, QueueCog):
+        if cog is None:
             await interaction.response.send_message(
                 embed=user_warn("Queue unavailable", "The queue module isn’t loaded — try again after a restart or contact the bot owner."), ephemeral=True
             )

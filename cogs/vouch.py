@@ -14,31 +14,35 @@ from utils.checks import is_staff
 from utils.embeds import PRIMARY, info_embed, success_embed
 
 
+def _leave_review_custom_id(order_id: str) -> str:
+    cid = f"leave_review:{order_id}"
+    return cid[:100]
+
+
 class LeaveReviewView(discord.ui.View):
-    """# CHANGED: button path for /review flow (cursor-prompt.md §6)."""
+    """Persistent: same custom_id + add_view per order_id after restart."""
 
-    def __init__(self, cog: "VouchCog", order_id: str) -> None:
-        super().__init__(timeout=3600.0)
-        self.cog = cog
-        self.order_id = order_id
-
-    @discord.ui.button(label="Leave a Review", style=discord.ButtonStyle.success, row=0)
-    async def leave_review_btn(
-        self, interaction: discord.Interaction, _: discord.ui.Button
-    ) -> None:
-        view = ReviewRatingsView(self.cog, self.order_id)
-        await interaction.response.send_message(
-            embed=info_embed(
-                "Review form (step 1/3)",
-                "Rate each item from **1** to **5**:\n"
-                "• Artwork quality\n"
-                "• Communication\n"
-                "• Turnaround time\n"
-                "• Process smoothness",
-            ),
-            view=view,
-            ephemeral=True,
+    def __init__(self, order_id: str) -> None:
+        super().__init__(timeout=None)
+        cid = _leave_review_custom_id(order_id)
+        btn = discord.ui.Button(
+            label="Leave a Review",
+            style=discord.ButtonStyle.success,
+            row=0,
+            custom_id=cid,
         )
+
+        async def _cb(interaction: discord.Interaction) -> None:
+            cog = interaction.client.get_cog("VouchCog")
+            if isinstance(cog, VouchCog):
+                await cog.handle_leave_review_click(interaction, order_id)
+            else:
+                await interaction.response.send_message(
+                    embed=info_embed("Unavailable", "Try again in a moment."), ephemeral=True
+                )
+
+        btn.callback = _cb
+        self.add_item(btn)
 
 
 class VouchPages(discord.ui.View):
@@ -245,7 +249,7 @@ class VouchCog(commands.Cog, name="VouchCog"):
                 await post_ch.send(
                     content=f"{interaction.user.mention} — thanks for vouching! "
                     "You can now leave a review with `/review` or use the button below.",
-                    view=LeaveReviewView(self, order_id),
+                    view=LeaveReviewView(order_id),
                 )
             except discord.Forbidden:
                 pass
@@ -375,16 +379,23 @@ class VouchCog(commands.Cog, name="VouchCog"):
     @app_commands.describe(order_id="Order ID to review")
     @app_commands.autocomplete(order_id=_review_order_autocomplete)
     async def review_cmd(self, interaction: discord.Interaction, order_id: str) -> None:
+        await self.handle_leave_review_click(interaction, order_id)
+
+    async def handle_leave_review_click(
+        self, interaction: discord.Interaction, order_id: str
+    ) -> None:
+        """Persistent LeaveReviewView button — same gates as /review."""
         if not interaction.guild:
-            await interaction.response.send_message("Guild only command.", ephemeral=True)
+            await interaction.response.send_message(
+                embed=info_embed("Guild only", "Use this inside your server ticket."), ephemeral=True
+            )
             return
-        # CHANGED: gate with vouch + DB row; not Feedback-pending role (cursor-prompt.md §6).
         row = await db.get_order(order_id)
         if not row or int(row.get("client_id") or 0) != interaction.user.id:
             await interaction.response.send_message(
                 embed=info_embed(
                     "Cannot review",
-                    "Order not found for your account. Pick an order from the list.",
+                    "Order not found for your account. Pick an order from the list when using **/review**.",
                 ),
                 ephemeral=True,
             )
@@ -448,6 +459,20 @@ class VouchCog(commands.Cog, name="VouchCog"):
             )
         v = VouchPages(interaction.user.id, pages)
         await interaction.response.send_message(embed=pages[0], view=v, ephemeral=True)
+
+
+async def register_leave_review_views(bot: commands.Bot) -> None:
+    rows = await db.list_orders_for_leave_review_views()
+    seen: set[str] = set()
+    for r in rows:
+        oid = str(r.get("order_id") or "").strip()
+        if not oid or oid in seen:
+            continue
+        seen.add(oid)
+        try:
+            bot.add_view(LeaveReviewView(oid))
+        except ValueError:
+            pass
 
 
 async def setup(bot: commands.Bot) -> None:

@@ -16,7 +16,7 @@ from discord.ext import commands
 
 import database as db
 import guild_keys as gk
-from cogs.queue import QueueCog, build_queue_entry_text, register_order_in_ticket_channel
+from cogs.queue import build_queue_entry_text, register_order_in_ticket_channel
 from discord.utils import format_dt
 
 from guild_config import get_category, get_role, get_text_channel, is_payment_config_complete
@@ -42,6 +42,19 @@ _SETUP_CH_ERR = (
 )
 
 log = logging.getLogger("bot.tickets")
+
+
+def _tickets_cog(client: discord.Client) -> Any:
+    """get_cog + avoid isinstance(..., TicketsCog): hot-reload makes two class objects → buttons break."""
+    cog = client.get_cog("TicketsCog")
+    return cog if cog is not None else None
+
+
+def _queue_cog(client: discord.Client) -> Any:
+    """Same as _tickets_cog — avoid isinstance(..., QueueCog) after extension reload."""
+    cog = client.get_cog("QueueCog")
+    return cog if cog is not None else None
+
 
 # Modal-only fields (tier / characters / BG / rush are chosen in quote steps first).
 DEFAULT_MODAL_FIELDS: list[dict[str, Any]] = [
@@ -235,13 +248,14 @@ class CloseTicketView(discord.ui.View):
         label="Archive Ticket", style=discord.ButtonStyle.danger, custom_id="ticket_close"
     )
     async def close_btn(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        cog = interaction.client.get_cog("TicketsCog")
-        if not isinstance(cog, TicketsCog):
+        cog = _tickets_cog(interaction.client)
+        fn = getattr(cog, "handle_close_button", None) if cog is not None else None
+        if not callable(fn):
             await interaction.response.send_message(
                 embed=user_warn("Tickets unavailable", "Try again in a moment."), ephemeral=True
             )
             return
-        await cog.handle_close_button(interaction)
+        await fn(interaction)
 
 
 class TicketOpsView(discord.ui.View):
@@ -310,14 +324,15 @@ class TicketOpsView(discord.ui.View):
         custom_id="ticket_ops_noted",
     )
     async def noted_btn(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        cog = interaction.client.get_cog("TicketsCog")
-        if not isinstance(cog, TicketsCog):
+        cog = _tickets_cog(interaction.client)
+        fn = getattr(cog, "handle_noted_button", None) if cog is not None else None
+        if not callable(fn):
             await interaction.response.send_message(
                 embed=user_warn("Tickets unavailable", "Try again in a moment."),
                 ephemeral=True,
             )
             return
-        await cog.handle_noted_button(interaction)
+        await fn(interaction)
 
     @discord.ui.button(
         label="Mark Complete",
@@ -539,9 +554,10 @@ class TicketOpsView(discord.ui.View):
             return
         stage = str(select.values[0])[:200]
         await db.update_ticket_fields(interaction.channel.id, wip_stage=stage)
-        cog = interaction.client.get_cog("TicketsCog")
-        if isinstance(cog, TicketsCog):
-            await cog._refresh_queue_card_from_ticket(interaction.guild, t, stage=stage)
+        cog = _tickets_cog(interaction.client)
+        fn = getattr(cog, "_refresh_queue_card_from_ticket", None) if cog is not None else None
+        if callable(fn):
+            await fn(interaction.guild, t, stage=stage)
         emb = discord.Embed(
             title="📍 Stage update",
             description=f"**{stage}**",
@@ -555,14 +571,15 @@ class TicketOpsView(discord.ui.View):
         custom_id="ticket_ops_close",
     )
     async def close_btn(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        cog = interaction.client.get_cog("TicketsCog")
-        if not isinstance(cog, TicketsCog):
+        cog = _tickets_cog(interaction.client)
+        fn = getattr(cog, "handle_close_button", None) if cog is not None else None
+        if not callable(fn):
             await interaction.response.send_message(
                 embed=user_warn("Tickets unavailable", "Try again in a moment."),
                 ephemeral=True,
             )
             return
-        await cog.handle_close_button(interaction)
+        await fn(interaction)
 
 
 class QuoteApprovalView(discord.ui.View):
@@ -1125,6 +1142,10 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
     revision = app_commands.Group(name="revision", description="Ticket revision tracking")
     references = app_commands.Group(name="references", description="Ticket reference links")
     note = app_commands.Group(name="note", description="Internal staff notes")
+    force = app_commands.Group(
+        name="force",
+        description="Emergency staff tools (e.g. stuck close / no client approval)",
+    )
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
@@ -2508,8 +2529,8 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
             )
             return
 
-        qc = interaction.client.get_cog("QueueCog")
-        if not isinstance(qc, QueueCog):
+        qc = _queue_cog(interaction.client)
+        if qc is None:
             await interaction.followup.send(
                 embed=user_warn("Queue unavailable", "Queue module not loaded."), ephemeral=True
             )
@@ -2913,7 +2934,7 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
     async def handle_close_button(self, interaction: discord.Interaction) -> None:
         await self._run_close(interaction)
 
-    async def _run_close(self, interaction: discord.Interaction) -> None:
+    async def _run_close(self, interaction: discord.Interaction, *, force: bool = False) -> None:
         if not interaction.guild or not isinstance(interaction.channel, discord.TextChannel):
             await interaction.response.send_message(
                 embed=user_hint("Wrong channel", "Use this inside an open ticket channel."), ephemeral=True
@@ -2938,11 +2959,16 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
                 ephemeral=True,
             )
             return
-        if is_staff_u and not is_owner and not bool(int(ticket.get("close_approved_by_client") or 0)):
+        if (
+            is_staff_u
+            and not is_owner
+            and not bool(int(ticket.get("close_approved_by_client") or 0))
+            and not force
+        ):
             await interaction.response.send_message(
                 embed=user_warn(
                     "Client approval required",
-                    "Client must approve closure first. Ask them to run **`/closeapprove`** in this ticket.",
+                    "Client must approve closure first. Ask them to run **`/closeapprove`** in this ticket, or staff use **`/force close`**.",
                 ),
                 ephemeral=True,
             )
@@ -3051,6 +3077,14 @@ class TicketsCog(commands.Cog, name="TicketsCog"):
     async def close_cmd(self, interaction: discord.Interaction) -> None:
         await self._run_close(interaction)
 
+    @force.command(
+        name="close",
+        description="Staff: close ticket with transcript (bypasses client /closeapprove gate)",
+    )
+    @is_staff()
+    async def force_close_cmd(self, interaction: discord.Interaction) -> None:
+        await self._run_close(interaction, force=True)
+
     @app_commands.command(
         name="closeapprove",
         description="Client approval for staff to close this ticket",
@@ -3103,8 +3137,9 @@ async def register_ticket_persistent_views(bot: commands.Bot) -> None:
     except ValueError:
         pass
     panels = await db.all_ticket_panels()
-    cog = bot.get_cog("TicketsCog")
-    if not isinstance(cog, TicketsCog):
+    cog = _tickets_cog(bot)
+    builder = getattr(cog, "_build_panel_view", None) if cog is not None else None
+    if not callable(builder):
         return
     for panel in panels:
         gid = int(panel["guild_id"])
@@ -3112,7 +3147,7 @@ async def register_ticket_persistent_views(bot: commands.Bot) -> None:
         rows = await db.list_ticket_buttons(gid)
         if not rows:
             continue
-        view = cog._build_panel_view(gid, rows)
+        view = builder(gid, rows)
         if view:
             try:
                 # Register globally so old panel messages still get handled.
