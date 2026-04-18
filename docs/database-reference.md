@@ -11,7 +11,8 @@
 | **`tickets`** | Open/closed ticket per **channel_id** PK: guild, client, button, answers JSON, order link, quote fields, status, WIP stage, revisions, references, downpayment flag, etc. |
 | **`orders`** | Queue orders: `order_id`, handler/client, item/amount/mop/price, ticket channel, status, `queue_message_id`, timestamps. |
 | **`warns`** | Warn records with moderator and reason. |
-| **`vouches`** | Vouch text + optional order id. |
+| **`vouches`** | Vouch text + optional order id (includes fallback ticket-name tags from client `/vouch`). |
+| **`commission_reviews`** | Client **`/review`** submissions per guild + reviewer + order_id (unique); ratings, text, dropdown answers, optional discount code. |
 | **`loyalty`** | Per-client completed order counts. |
 | **`tos_agreements`** | User id → agreed timestamp (button flow). |
 | **`shop_state`** | Single row: open flag, last toggle time, toggled_by. |
@@ -58,5 +59,6 @@
 - **`allocate_loyalty_card_number` / `recycle_loyalty_card_number`** — loyalty card ID lifecycle.
 - **`upsert_loyalty_card_image` / `list_loyalty_card_images`** — stamp state image config.
 - **`insert_loyalty_card` / `patch_loyalty_card` / `get_active_loyalty_cards_for_user` / `delete_loyalty_card_row`** — loyalty card runtime storage/update.
+- **`insert_commission_review` / `has_commission_review` / `list_reviewable_order_tags_for_client`** — **`/review`** storage and autocomplete union (orders + vouch fallback tags).
 
-For command-level behavior, see the project [`README.md`](../README.md) and the feature docs linked from [README.md](README.md).
+For command-level behavior, see the project [`README.md`](../README.md), [`situational-flows.md`](situational-flows.md), and the feature docs linked from [README.md](README.md).

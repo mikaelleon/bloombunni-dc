@@ -63,6 +63,9 @@ Default modal fields are in `DEFAULT_MODAL_FIELDS` in code; welcome embed field 
 5. **Welcome embed:** title `🎀 {button_label} ticket — {display_name}`; TAT / installment / loyalty lines; modal answers; **`CloseTicketView`**.
 6. **Payment embed:** `💳 Awaiting payment` — due lines derived from **total to send** (PHP thresholds ₱500, USD $25); lists GCash/PayPal/Ko‑fi hints from DB strings.
 7. **Staff shortcuts** embed listing **`/quote recalculate`**, **`/payment confirm`**, **`/stage`**, **`/revision log`**, **`/references add`**.
+8. **Ticket ops** (`TicketOpsView` on welcome message): **Claim** (processing category), **Done** (done category + optional loyalty stamp card issue; interaction is **deferred** first to avoid Unknown interaction), **Remind client**, **Close** (same pipeline as **`/close`**).
+
+Client **`/vouch`** is intended for use **inside this ticket** (see [vouches.md](vouches.md), [situational-flows.md](situational-flows.md)).
 
 ## Ticket workflow commands
 
@@ -120,6 +123,7 @@ Tickets created from the **warn appeal** DM button use `button_id = warn_appeal`
 
 ## Related docs
 
+- [situational-flows.md](situational-flows.md) — owner vs staff vs client flows (tickets, vouch, review).
 - [queue-templates-loyalty.md](queue-templates-loyalty.md) — what happens after **`/payment confirm`**.
 - [quotes-and-pricing.md](quotes-and-pricing.md) — quote math.
 - [warnings.md](warnings.md) — warn appeal tickets and **`/clearwarn`** in-channel.

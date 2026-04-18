@@ -1,4 +1,4 @@
-# Vouches (`cogs/vouch.py`)
+# Vouches and reviews (`cogs/vouch.py`)
 
 ## Automatic vouch (`on_message` listener)
 
@@ -13,32 +13,46 @@ When a message is sent in the configured **`VOUCHES_CHANNEL`**:
 
 Bots and DMs are ignored.
 
-## `/vouch` (staff)
+## Client `/vouch` (ticket channel only)
 
-Parameters: **`member`**, **`order_id`**, **`message`**.
+- Requires **`PLEASE_VOUCH_ROLE`**.
+- Must run in a **text channel** that has an **open ticket** record and where **`client_id`** is the invoker.
+- **Order ID resolution:**
+  - If an **`orders`** row exists for **`ticket_channel_id`** + this client → use that **`order_id`** (“registered order”).
+  - Else → use **current channel name** as fallback tag (e.g. slug `cs-fb-user-001`) (“ticket-name fallback”).
+- Inserts **`insert_vouch(client_id, order_id, message)`**.
+- Posts embed to **`VOUCHES_CHANNEL`** with owner mention, optional **`staff`** mention, optional **`proof`** image.
+- May add **`FEEDBACK_PENDING_ROLE`**; DMs short **`/review`** instructions.
+- Loyalty hook: **`apply_vouch_to_loyalty_card`** when configured.
 
-- Inserts vouch with order id.
-- If member has active loyalty stamp card, card stamp/image is advanced by runtime hook.
-- Tries to **remove** PlsVouch from member; if not present, odd path tries add+remove (to clear role state).
-- If **`VOUCHES_CHANNEL`** is set, posts embed:
+Ephemeral success includes which **order_id** and source were used.
 
-**Embed**
+## Staff `/vouchstaff`
 
-- Title: **`⭐ Vouch`**
-- Description: `**{display_name}**\n{message}\nOrder: `{order_id}``
-- Color: **`PRIMARY`**
+Parameters: **`member`**, **`order_id`** (autocomplete), **`message`**.
 
-- Ephemeral **`success_embed("Logged", "Vouch posted.")`**
+- Staff-only (`@is_staff`).
+- Inserts vouch with order id; same PlsVouch strip / vouches-channel embed behavior as legacy staff path.
+- Loyalty hook as above.
+
+## Client `/review`
+
+- Typically requires **`FEEDBACK_PENDING_ROLE`** when that slot is configured.
+- **`order_id`** autocomplete merges:
+  - Reviewable **registered orders** (same logic as queue pipeline), and
+  - **Fallback tags** from **`vouches.order_id`** for that client, excluding rows already in **`commission_reviews`**.
+- **`review_cmd`** accepts the order if either:
+  - **`get_order(order_id)`** shows **`client_id`** = invoker, or
+  - **`has_vouch_for_order(client_id, order_id)`** (fallback tag from prior **`/vouch`**).
+- Multi-step UI: numeric ratings (1–5) → modal (two text fields) → dropdowns → **`insert_commission_review`**; embed to **`FEEDBACK_CHANNEL`**; optional **`REVIEW_REWARD_ROLE`**; discount code DM.
 
 ## `/vouches`
 
-Lists **`list_vouches_for_user`** — paged embeds (5 per page) with **`VouchPages`**:
-
-- Title: **`Vouches for {display_name}`**
-- Description lines: **`#{vouch_id}`** — timestamp — message excerpt.
+Lists **`list_vouches_for_user`** — paged embeds (5 per page) with **`VouchPages`**.
 
 Empty: **`info_embed("Vouches", "No vouches found.")`**
 
 ## Data
 
-Table **`vouches`**: `vouch_id`, `client_id`, `order_id`, `message`, `created_at`.
+- Table **`vouches`**: `vouch_id`, `client_id`, `order_id`, `message`, `created_at`.
+- Table **`commission_reviews`**: stores **`/review`** submissions (see **`database.py`** migration for columns).

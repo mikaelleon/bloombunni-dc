@@ -73,7 +73,7 @@ class VouchCog(commands.Cog, name="VouchCog"):
     ) -> list[app_commands.Choice[str]]:
         if not interaction.guild:
             return []
-        rows = await db.list_reviewable_orders_for_client(
+        rows = await db.list_reviewable_order_tags_for_client(
             interaction.guild.id, interaction.user.id, limit=50
         )
         needle = str(current or "").strip().lower()
@@ -82,16 +82,23 @@ class VouchCog(commands.Cog, name="VouchCog"):
             oid = str(r.get("order_id") or "")
             if not oid:
                 continue
+            source = str(r.get("source") or "order")
             ch_name = "no-ticket"
             ch_id = r.get("ticket_channel_id")
             if ch_id:
                 ch = interaction.guild.get_channel(int(ch_id))
                 if ch:
                     ch_name = ch.name
-            hay = f"{oid} {ch_name}".lower()
+            source_label = "fallback-tag" if source == "fallback" else "registered-order"
+            hay = f"{oid} {ch_name} {source_label}".lower()
             if needle and needle not in hay:
                 continue
-            out.append(app_commands.Choice(name=f"{oid} · {ch_name}"[:100], value=oid))
+            out.append(
+                app_commands.Choice(
+                    name=f"{oid} · {ch_name} · {source_label}"[:100],
+                    value=oid,
+                )
+            )
             if len(out) >= 25:
                 break
         return out
@@ -363,9 +370,11 @@ class VouchCog(commands.Cog, name="VouchCog"):
             )
             return
         row = await db.get_order(order_id)
-        if not row or int(row.get("client_id") or 0) != interaction.user.id:
+        has_registered_order = bool(row and int(row.get("client_id") or 0) == interaction.user.id)
+        has_fallback_tag = await db.has_vouch_for_order(interaction.user.id, order_id)
+        if not has_registered_order and not has_fallback_tag:
             await interaction.response.send_message(
-                "Order ID not assigned to you.", ephemeral=True
+                "Order/tag not assigned to you.", ephemeral=True
             )
             return
         if await db.has_commission_review(interaction.guild.id, interaction.user.id, order_id):

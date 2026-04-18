@@ -55,7 +55,7 @@ Milestone rewards are **hard-coded** in `LOYALTY_MILESTONES` (e.g. 5 → “10% 
 
 ## Loyalty stamp cards (`/loyalty_card`)
 
-- Trigger source: when ticket is closed, bot can post `LC-XXX` card message with image state `0` and create per-card thread.
+- Trigger source: when staff presses **Done** or when ticket is **closed**, bot can post `LC-XXX` card message with image state `0` and create per-card thread (**Done** does not wait for close).
 - Stamp source: when user completes vouch (`vouches` channel listener or `/vouch`), active card image/message updates to next stamp state.
 - Image states are owner/admin configurable (`stamp_index` 0..N).
 - Channel behavior: owner/admin can set channel manually, or enable auto-create.

@@ -22,6 +22,9 @@ Technical reference for the **Mika Shop** Discord bot (code under `bot/`). Opera
 
 ## Feature modules
 
+**Operator playbook (recommended):** [situational-flows.md](situational-flows.md) — who does what for owner/admin, staff, and clients.
+
+| [situational-flows.md](situational-flows.md) | **Owner vs staff vs client** — ticket, vouch, review, loyalty, setup (situational playbook) |
 | [quotes-and-pricing.md](quotes-and-pricing.md) | `/quote`, `/pricelist`, `/setprice`, …, `quote_compute` |
 | [tickets-and-panels.md](tickets-and-panels.md) | `/ticketpanel`, `/ticketbutton`, `/ticketform`, `/deploy`, ticket flow, `/payment`, `/stage`, `/close` |
 | [queue-templates-loyalty.md](queue-templates-loyalty.md) | `/queue`, order dropdown, templates, `/loyalty`, `/setorderprefix` |

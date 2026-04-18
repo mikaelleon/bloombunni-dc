@@ -14,7 +14,7 @@ Sends an **ephemeral** message with **`WizardMainView`**: six buttons that each 
 | **Queue & Orders** | Step 1: **queue** channel. Step 2: **order notifications** channel. Saves `QUEUE_CHANNEL` and `ORDER_NOTIFS_CHANNEL`. |
 | **Shop & TOS** | Four steps: TOS **text** channel → **TOS agreed** role → **shop status** embed channel → **commissions open** role. Success: run **`/deploy tos`**, use **`/shop`** for open/close. |
 | **Payment** | Single channel select for **payment panel** channel (`PAYMENT_CHANNEL`). Then staff must set all **`/config payment`** strings and run **`/deploy payment`**. |
-| **Channels & Roles** | Roles: Staff → Boostie → Reseller → Please vouch. Channels: Vouches → Warn log. |
+| **Channels & Roles** | Roles: Staff → Boostie → Reseller → Please vouch → Feedback pending → Review reward. Channels: Vouches → Feedback (owner review inbox) → Warn log. |
 | **Pricing** | Informational only: points to **`/setprice`**, **`/quoteextras`**, **`/setdiscount`**, **`/setcurrency`**, **`/pricelist`**. |
 
 Timeouts on views are **600s** (payment sub-view **300s**).

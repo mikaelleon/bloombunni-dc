@@ -17,7 +17,8 @@ A Discord bot for running a **small art commission shop** in your server: agree 
 9. [Commands by who can use them](#commands-by-who-can-use-them)
 10. [Hosting the bot online](#hosting-the-bot-online)
 11. [Files and folders (optional)](#files-and-folders-optional)
-12. [More documentation](#more-documentation)
+12. [Situational flows (who does what)](#situational-flows-who-does-what)
+13. [More documentation](#more-documentation)
 
 ---
 
@@ -43,7 +44,7 @@ Planned expansion systems (`plans/`) progress: **0%**
 - [x] Conditions editor UX upgrade (role/channel dropdown selectors; no developer mode IDs needed)
 - [x] Ephemeral confirmation auto-dismiss (10s) for `/ar` micro-updates and status actions
 - [x] Embed file import (`/embed importfile`) from `.md` / `.json` to quickly seed or update embeds
-- [x] Loyalty stamp card system (`/loyalty_card`) with ticket-close issue, vouch-based stamp progression, and card channel/thread posting
+- [x] Loyalty stamp card system (`/loyalty_card`) with **Done** or ticket-close issue, vouch-based stamp progression, and card channel/thread posting
 - [ ] Autoresponder full-spec parity (`autoresponder builder/autoresponder-full-spec.md`) — **in progress**
 - [ ] Remaining polish and optional enhancements from backlog - **20%**
 - [ ] Plan 01: MYO system (`plans/01_MYO_SYSTEM.md`) - **0%**
@@ -97,7 +98,7 @@ Planned expansion systems (`plans/`) progress: **0%**
 
 - [x] Configurable loyalty card channel + optional auto-create
 - [x] Configurable stamp-state images (`0..N`)
-- [x] Ticket-close issuance: post card message + thread with auto-increment `LC-XXX` ID
+- [x] Issuance on **Done** or ticket close: post card message + thread with auto-increment `LC-XXX` ID
 - [x] Vouch-driven stamp progression (message image updates to current stamp state)
 - [x] Auto-void timer for non-vouched cards (`voidhours`)
 - [x] Owner/admin showlist and staff-facing maintenance commands
@@ -115,7 +116,7 @@ Planned expansion systems (`plans/`) progress: **0%**
 - **Payments:** A panel with buttons for GCash, PayPal, and Ko-fi (each server sets copy and URLs with **`/config payment`** …). Tickets can also show an **awaiting payment** embed with amounts due.
 - **Commission quotes:** Staff maintain **base prices** and add-ons in the database; anyone can run **`/quote calculator`**; staff can **`/quote recalculate`** inside a ticket to re-post an updated quote.
 - **Loyalty:** Track completed orders per client (`/loyalty`, `/loyaltytop`) and run loyalty stamp cards (`/loyalty_card`) that post on ticket close, create per-card threads, and progress image state when a vouch is completed.
-- **Vouches:** Dedicated vouch channel behavior and manual vouch logging.
+- **Vouches & feedback:** Clients with **Please vouch** run **`/vouch`** inside their ticket (order ID auto from DB or ticket channel name); bot posts to **vouches** channel, may assign **Feedback pending**, then client can **`/review`** (ratings + modal + dropdowns) with review embed to **feedback** channel and optional reward role + discount DM. Staff use **`/vouchstaff`** for manual logs. Legacy: typing in the vouches channel still clears **Please vouch**.
 - **Delivery:** Staff can send a “delivery” DM with a link; history can be listed.
 - **Moderation:** Warn members, DM a notice, optional auto-ban after a set number of warns, warn log channel.
 - **Sticky messages:** Keep a chosen embed reposted at the bottom of a channel.
@@ -147,7 +148,7 @@ Planned expansion systems (`plans/`) progress: **0%**
 4. **Members** agree to TOS, then **open a ticket** when the shop is open (commission type → quote steps → short form).
 5. **Staff** uses **`/payment confirm`** after payment (registers the order like **`/queue`** if needed) or **`/queue`** directly; then updates status from menus in the ticket.
 6. **Staff** can post **WIP stage** updates (**`/stage`**), log **revisions** (**`/revision log`**), and save **reference links** (**`/references`**).
-7. When done, the client can be nudged toward **vouches** and **drops**.
+7. Staff can press **Done** (moves ticket, issues **loyalty stamp card** when configured) and/or **Close**; client can **`/vouch`** in-ticket, then **`/review`** when eligible. **Drops** remain staff-driven.
 
 ---
 
@@ -199,7 +200,7 @@ This prevents old guild-scoped commands from stacking with global commands in th
 Do this **after** the bot is online and invited with enough permissions (see [Discord settings](#discord-settings-your-server-needs)).
 
 1. Run **`/config view`** to see what is missing (managers only—see [commands](#commands-by-who-can-use-them)).
-2. Use **`/setup`** (interactive wizard) to map **channels, categories, and roles**, or set them through your workflow until every slot you need is filled (queue channel, ticket categories, staff role, TOS role, **optional** age-verified role and verification channel for NSFW ticket types, etc.).
+2. Use **`/setup`** (interactive wizard) to map **channels, categories, and roles**, or set them through your workflow until every slot you need is filled (queue channel, ticket categories, staff role, TOS role, **vouches**, **feedback**, **please vouch**, **feedback pending**, **review reward**, **optional** age-verified role and verification channel for NSFW ticket types, etc.).
 3. Set **payment** text and URLs with **`/config payment`** subcommands (`gcash_details`, `paypal_link`, `kofi_link`, `gcash_qr`, `paypal_qr`) so the payment buttons and ticket payment embeds work.
 4. Put your TOS text in **`tos.txt`** (in the `bot` folder) if you use the TOS panel.
 5. Staff configures **quote prices** (`/setprice`, `/quoteextras`, discounts, currencies—see [Quotes](#quotes-and-pricing)) if you want automatic ticket quotes.
@@ -232,9 +233,9 @@ If something fails with “missing permissions,” give the bot’s role a highe
 
 - **`/config view`:** Lists channels, categories, roles, payment text/URLs, and a count of quote price rows (managers / staff per bot rules).
 - **`/config reset`:** Clears a chosen group (tickets, queue, shop, payment, channels/roles, or quote pricing) with confirmation.
-- **Channels:** Queue, shop status, transcripts, vouches, optional order notifications, Start Here, TOS, **verification** (optional, for age gate), payment, warn log.
+- **Channels:** Queue, shop status, transcripts, vouches, **feedback** (owner review inbox), optional order notifications, Start Here, TOS, **verification** (optional, for age gate), payment, warn log.
 - **Categories:** New tickets, noted, processing, done (order pipeline).
-- **Roles:** Staff, TOS agreed, **age verified** (optional, for NSFW ticket buttons), commissions open, please vouch, Boostie/Reseller (quote discounts).
+- **Roles:** Staff, TOS agreed, **age verified** (optional, for NSFW ticket buttons), commissions open, please vouch, **feedback pending**, **review reward**, Boostie/Reseller (quote discounts).
 - **Payment:** GCash text, PayPal/Ko-fi links, GCash/PayPal QR image URLs (`/config payment …`).
 
 ### Shop
@@ -253,7 +254,7 @@ If something fails with “missing permissions,” give the bot’s role a highe
 
 - **Open a ticket:** Button on the panel from **`/ticketpanel`** / **`/ticketbutton`** (requires TOS role + shop open; **optional** age-verified role + verification channel when **`/ticketbutton agegate`** is enabled for that button).
 - **Flow:** Commission type → **rendering tier** → **character count** → **background** → **rush** → short modal (e.g. mode of payment, references, notes). The bot posts a **quote embed**, a **welcome** embed (payment terms, TAT, loyalty count), an **awaiting payment** embed, and a **staff shortcuts** line.
-- **Close:** Button in the ticket or **`/close`**; builds an **HTML transcript** (with optional lines for **revisions** and **quoted total** when stored), tries to DM the client, and posts a copy to your transcript channel when possible.
+- **Done / close:** **Done** (staff) moves the ticket to the done category and can issue a **loyalty stamp card** immediately (no need to wait for close). **Close** (button or **`/close`**) builds an **HTML transcript** (with optional lines for **revisions** and **quoted total** when stored), tries to DM the client, and posts a copy to your transcript channel when possible.
 
 ### Queue and orders
 
@@ -271,10 +272,12 @@ If something fails with “missing permissions,” give the bot’s role a highe
 - Managers set **GCash body text**, **PayPal / Ko-fi links**, and **QR image URLs** with **`/config payment`** (see **`/config view`**).
 - Panel with **GCash / PayPal / Ko-fi** buttons; each shows an ephemeral embed using that server’s saved values.
 
-### Vouches
+### Vouches and reviews
 
-- Posting in the **vouches channel** can remove a “please vouch” role (when configured).
-- **`/vouch`:** Staff manually logs a vouch.
+- **Client `/vouch`:** Run **inside the ticket channel** with **Please vouch** role; bot resolves **order ID** from the registered order for this ticket, or uses the **ticket channel name** as a fallback tag. Posts to **vouches** channel, optional staff mention + proof image, may grant **Feedback pending**, DMs **`/review`** instructions.
+- **Staff `/vouchstaff`:** Manually log a vouch for a member + order (autocomplete).
+- **Client `/review`:** Requires **Feedback pending** when configured; multi-step ephemeral form; posts full embed to **feedback** channel; optional **review reward** role + discount code via DM.
+- **Vouches channel message:** Posting in the **vouches channel** with **Please vouch** still removes that role and logs a vouch (legacy path).
 - **`/vouches`:** List vouches for a member.
 
 ### Drops
@@ -327,7 +330,7 @@ If something fails with “missing permissions,” give the bot’s role a highe
 - **`/loyalty_card voidhours`:** Optional timer requiring first vouch before card auto-voids.
 - **`/loyalty_card showlist`:** View active cards and stamp counts.
 - **`/loyalty_card abandon`** / **`/loyalty_card remove`:** Delete own card or owner/admin remove a user card.
-- **Automatic behavior:** Ticket close issues a new `LC-XXX` card post and thread; vouch completion updates card image/message to next stamp state.
+- **Automatic behavior:** **Done** or ticket **close** can issue a new `LC-XXX` card post and thread (**Done** does not wait for close); vouch completion updates card image/message to next stamp state.
 
 ### Planned core systems (unimplemented)
 
@@ -357,6 +360,8 @@ Slash commands are typed with **`/`** in Discord. Only commands that exist for y
 | **`/loyalty`** *member* | Shows loyalty progress for a member. |
 | **`/loyaltytop`** | Top 10 clients by completed orders. |
 | **`/vouches`** *member* | Lists saved vouches for a member. |
+| **`/vouch`** | Client: post vouch from **own ticket** (needs **Please vouch**); order ID resolved automatically. |
+| **`/review`** | Client: submit private review (needs **Feedback pending** when configured); see [`docs/situational-flows.md`](docs/situational-flows.md). |
 | **`/close`** | Closes the **current ticket** if you are the ticket owner **or** staff (same rules as the Close button). |
 
 *Also:* anyone can use **payment panel buttons** (GCash / PayPal / Ko-fi) and the **TOS agree** button when those messages exist.
@@ -383,7 +388,7 @@ Staff commands use the role mapped in **`/config view`** as **Staff**. If that r
 | **`/setprice`**, **`/quoteextras`**, **`/setdiscount`**, **`/setcurrency`** | Maintain quote matrix and quote display options. |
 | **`/settemplate`**, **`/viewtemplate`**, **`/listtemplates`**, **`/resettemplates`** | Manage custom message templates. |
 | **`/warn`**, **`/warns`**, **`/clearwarn`**, **`/clearallwarns`** | Warning system. |
-| **`/vouch`** | Manually log a vouch. |
+| **`/vouchstaff`** | Manually log a vouch for a member + order. |
 | **`/drop`**, **`/drophistory`** | Send delivery links / view history. |
 | **`/sticky`**, **`/stickyupdate`**, **`/unsticky`**, **`/stickies`**, **`/stickypreview`** | Sticky embed tools. |
 
@@ -440,8 +445,15 @@ For **Render**, Railway, or similar: run **`python main.py`** as the start comma
 
 ---
 
+## Situational flows (who does what)
+
+End-to-end behavior by **owner/admin**, **staff**, and **client** (tickets, **Done** vs close, vouch, review, loyalty cards, troubleshooting) lives in **[`docs/situational-flows.md`](docs/situational-flows.md)**. Use it as the operator playbook alongside the command tables below.
+
+---
+
 ## More documentation
 
+- [`docs/situational-flows.md`](docs/situational-flows.md) — situational flows by role (owner, staff, client).
 - [`docs/README.md`](docs/README.md) — index of extra docs.
 - [`docs/database-reference.md`](docs/database-reference.md) — SQLite tables overview (includes embed/button builder tables).
 - [`autoresponder builder/autoresponder-full-spec.md`](autoresponder%20builder/autoresponder-full-spec.md) — full AR target scope (parity + planned extensions).

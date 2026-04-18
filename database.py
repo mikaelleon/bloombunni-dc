@@ -1266,6 +1266,102 @@ async def list_reviewable_orders_for_client(
     return out
 
 
+async def list_reviewable_order_tags_for_client(
+    guild_id: int, client_id: int, limit: int = 50
+) -> list[dict[str, Any]]:
+    """Union of registered orders and fallback tags from vouches, minus reviewed."""
+    t0 = time.perf_counter()
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        try:
+            cur = await db.execute(
+                """
+                SELECT order_id, ticket_channel_id, source, last_ts
+                FROM (
+                    SELECT
+                        o.order_id AS order_id,
+                        o.ticket_channel_id AS ticket_channel_id,
+                        'order' AS source,
+                        COALESCE(o.updated_at, o.created_at) AS last_ts
+                    FROM orders o
+                    WHERE o.client_id = ?
+                      AND o.deleted_at IS NULL
+                    UNION ALL
+                    SELECT
+                        v.order_id AS order_id,
+                        NULL AS ticket_channel_id,
+                        'fallback' AS source,
+                        v.created_at AS last_ts
+                    FROM vouches v
+                    WHERE v.client_id = ?
+                      AND COALESCE(v.order_id, '') <> ''
+                ) x
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM commission_reviews r
+                    WHERE r.guild_id = ? AND r.reviewer_id = ? AND r.order_id = x.order_id
+                )
+                ORDER BY datetime(last_ts) DESC
+                LIMIT ?
+                """,
+                (int(client_id), int(client_id), int(guild_id), int(client_id), int(limit)),
+            )
+        except aiosqlite.OperationalError as e:
+            if "no such column: o.deleted_at" not in str(e):
+                raise
+            cur = await db.execute(
+                """
+                SELECT order_id, ticket_channel_id, source, last_ts
+                FROM (
+                    SELECT
+                        o.order_id AS order_id,
+                        o.ticket_channel_id AS ticket_channel_id,
+                        'order' AS source,
+                        COALESCE(o.updated_at, o.created_at) AS last_ts
+                    FROM orders o
+                    WHERE o.client_id = ?
+                    UNION ALL
+                    SELECT
+                        v.order_id AS order_id,
+                        NULL AS ticket_channel_id,
+                        'fallback' AS source,
+                        v.created_at AS last_ts
+                    FROM vouches v
+                    WHERE v.client_id = ?
+                      AND COALESCE(v.order_id, '') <> ''
+                ) x
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM commission_reviews r
+                    WHERE r.guild_id = ? AND r.reviewer_id = ? AND r.order_id = x.order_id
+                )
+                ORDER BY datetime(last_ts) DESC
+                LIMIT ?
+                """,
+                (int(client_id), int(client_id), int(guild_id), int(client_id), int(limit)),
+            )
+        rows = await cur.fetchall()
+        dedup: set[str] = set()
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            oid = str(r["order_id"] or "").strip()
+            if not oid or oid in dedup:
+                continue
+            dedup.add(oid)
+            out.append(
+                {
+                    "order_id": oid,
+                    "ticket_channel_id": r["ticket_channel_id"],
+                    "source": str(r["source"] or "order"),
+                    "last_ts": r["last_ts"],
+                }
+            )
+            if len(out) >= int(limit):
+                break
+    await _record_slow_query(
+        "list_reviewable_order_tags_for_client", (time.perf_counter() - t0) * 1000.0
+    )
+    return out
+
+
 async def update_order_status(order_id: str, status: str) -> None:
     now = _utc_now()
     async with aiosqlite.connect(DATABASE_PATH) as db:
@@ -2036,6 +2132,19 @@ async def has_commission_review(guild_id: int, reviewer_id: int, order_id: str) 
             LIMIT 1
             """,
             (int(guild_id), int(reviewer_id), str(order_id)),
+        )
+        return await cur.fetchone() is not None
+
+
+async def has_vouch_for_order(client_id: int, order_id: str) -> bool:
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cur = await db.execute(
+            """
+            SELECT 1 FROM vouches
+            WHERE client_id = ? AND order_id = ?
+            LIMIT 1
+            """,
+            (int(client_id), str(order_id)),
         )
         return await cur.fetchone() is not None
 
