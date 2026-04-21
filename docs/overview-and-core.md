@@ -2,7 +2,7 @@
 
 ## Purpose
 
-**Mika Shop** is a Discord commission bot: configurable ticket panels, quotes, queue cards, payments, vouches, warnings, stickies, and staff utilities. It uses **discord.py** with **application commands** (slash). Prefix `!` exists at bot level, but feature cogs expose slash-first UX.
+**Bloomni** (repository `bloombunni-dc`) is a Discord commission bot: configurable ticket panels, quotes, queue cards, payments, vouches, warnings, stickies, and staff utilities. Entry class in code is **`MikaBot`**. It uses **discord.py** with **application commands** (slash). Prefix `!` exists at bot level, but feature cogs expose slash-first UX.
 
 ## Entry point (`main.py`)
 
@@ -13,8 +13,8 @@
 
 ### `setup_hook` (runs once at startup)
 
-1. **`database.init_db()`** — creates/migrates SQLite schema (`config.DATABASE_PATH`, default `bot/bot.db`).
-2. **`config.validate_config()`** — ensures token exists.
+1. **`config.validate_config()`** — ensures token exists.
+2. **`await database.init_db()`** — creates/migrates SQLite schema (`config.DATABASE_PATH`, default **`bot.db`** next to `config.py`).
 3. **Loads extensions** (in order):
 
    `cogs.owner_tools`, `cogs.embed_builder`, `cogs.button_builder`, `cogs.autoresponder_builder`, `cogs.config_cmd`, `cogs.setup_wizard`, `cogs.quotes`, `cogs.tickets`, `cogs.queue`, `cogs.shop`, `cogs.vouch`, `cogs.loyalty_cards`, `cogs.warn`, `cogs.sticky`, `cogs.drop`, `cogs.payment`
@@ -25,6 +25,7 @@
    - `PaymentView` (payment panel buttons)
 6. **`register_ticket_persistent_views(self)`** — re-attaches ticket panel button views and `CloseTicketView` from DB.
 7. **`register_order_status_views(self)`** — re-attaches queue **order status** dropdowns for open orders.
+8. **`register_leave_review_views(self)`** — re-attaches vouch/review-related views (e.g. leave-review flows) from DB.
 
 ### `on_ready`
 
@@ -50,7 +51,7 @@ There is **no** `on_message` in `main.py`; message listeners live in cogs (vouch
 | **`BOT_TOKEN`** | Required; bot login token (`.env`). |
 | **`SYNC_GUILD_ID`** | Optional; when set, guild-only slash sync (fast; avoids duplicate slash entries in that server). Unset for global registration across all servers. |
 | **`GUILD_SLASH_PURGE_ID`** | Optional; with **`SYNC_GUILD_ID` unset**, `tree.sync(guild)` with empty payload once to remove stale guild slash commands (use if duplicates remain after switching sync mode). |
-| **`DATABASE_PATH`** | SQLite file (default `bot/bot.db`). |
+| **`DATABASE_PATH`** | SQLite file (default **`bot.db`** next to `config.py`). |
 | **`TOS_FILE`** | Default TOS text for `/deploy tos` (`tos.txt`). |
 | **`TEMPLATES_FILE`** | Default queue templates (`templates.json`). |
 

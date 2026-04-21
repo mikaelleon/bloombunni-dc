@@ -1,6 +1,6 @@
 # Database reference (`database.py`)
 
-**Engine:** SQLite via **aiosqlite**. **Path:** `config.DATABASE_PATH` (default **`bot/bot.db`** next to `config.py`).
+**Engine:** SQLite via **aiosqlite**. **Path:** `config.DATABASE_PATH` (default **`bot.db`** next to `config.py` / repository root).
 
 `init_db()` creates tables and runs **migrations** for `tickets` / `ticket_buttons` / `tickets` extra columns.
 

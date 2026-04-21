@@ -1,4 +1,4 @@
-# Mika Shop — Feature Improvement List
+# Bloomni — feature improvement list
 ### Sorted by Priority · One Section Per Feature
 
 ---

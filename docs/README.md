@@ -1,6 +1,6 @@
 # Bot documentation index
 
-Technical reference for the **Mika Shop** Discord bot (code under `bot/`). Operator setup is also summarized in the project [`README.md`](../README.md) if present.
+Technical reference for the **Bloomni** Discord bot (Python sources at the **repository root**: `main.py`, `cogs/`, `database.py`, etc.). Operator setup is summarized in the project [`README.md`](../README.md).
 
 **Full ordering narrative (tickets → queue → Done/close → vouch → review):** [`ordering-process.md`](ordering-process.md).
 
@@ -50,3 +50,4 @@ Roadmap docs: [`button builder/embed-button-improvements.md`](../button%20builde
 ## Data reference
 
 | [database-reference.md](database-reference.md) | SQLite tables and keys overview |
+| [feature-priority-list.md](feature-priority-list.md) | P0–P4 feature priority checklist (implementation vs `docs/`) |

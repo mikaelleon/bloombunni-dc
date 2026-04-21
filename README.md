@@ -1,6 +1,8 @@
-# Mika Shop — Discord Bot
+# Bloomni — Discord Bot
 
 A Discord bot for running a **small art commission shop** in your server: agree to rules, open private tickets, track orders on a queue, take payments, and handle vouches and warnings. This guide is written so **you do not need to be a programmer** to understand or set it up.
+
+**Bloomni** is the project name for this repository (`bloombunni-dc`). Some in-app strings and defaults still say **Mika Shop** / **Mikaelleon** (quote brand, setup embeds, backups)—configure **`brand_name`** and templates per server if you want different wording.
 
 ---
 
@@ -25,14 +27,14 @@ A Discord bot for running a **small art commission shop** in your server: agree 
 
 ## Overview
 
-**Mika Shop** helps you run commissions in Discord: customers use **buttons** and **slash commands** (`/` commands) to open tickets, staff register orders with **`/queue`** or **`/payment confirm`**, and the bot keeps **HTML transcripts** (with optional ticket metadata) when a ticket closes. **Only the bot token** is read from your **`.env`** file. **Channels, roles, and payment text (GCash, PayPal, Ko-fi, QR image links)** are set **per server** with **`/config`** (and the **`/setup`** wizard) and stored in the database—no payment info in `.env`.
+**Bloomni** helps you run commissions in Discord: customers use **buttons** and **slash commands** (`/` commands) to open tickets, staff register orders with **`/queue`** or **`/payment confirm`**, and the bot keeps **HTML transcripts** (with optional ticket metadata) when a ticket closes. **Only the bot token** is read from your **`.env`** file. **Channels, roles, and payment text (GCash, PayPal, Ko-fi, QR image links)** are set **per server** with **`/config`** (and the **`/setup`** wizard) and stored in the database—no payment info in `.env`.
 
 ---
 
 ## Current progress
 
 Overall core bot progress: **88%**
-Planned expansion systems (`plans/`) progress: **0%**
+Planned expansion systems (`myo system plan/`) progress: **0%**
 
 - [x] Core ticketing flow (panel, open, close, transcript) - **100%**
 - [x] Queue and order management pipeline - **100%**
@@ -48,13 +50,13 @@ Planned expansion systems (`plans/`) progress: **0%**
 - [x] Loyalty stamp card system (`/loyalty_card`) with **Done** or ticket-close issue, vouch-based stamp progression, and card channel/thread posting
 - [ ] Autoresponder full-spec parity (`autoresponder builder/autoresponder-full-spec.md`) — **in progress**
 - [ ] Remaining polish and optional enhancements from backlog - **20%**
-- [ ] Plan 01: MYO system (`plans/01_MYO_SYSTEM.md`) - **0%**
-- [ ] Plan 02: Batch and slot system (`plans/02_BATCH_SLOT_SYSTEM.md`) - **0%**
-- [ ] Plan 03: Currency system (`plans/03_CURRENCY_SYSTEM.md`) - **0%**
-- [ ] Plan 04: Gacha system (`plans/04_GACHA_SYSTEM.md`) - **0%**
-- [ ] Plan 05: Casino minigames (`plans/05_CASINO_MINIGAMES.md`) - **0%**
-- [ ] Plan 06: Collectible system (`plans/06_COLLECTIBLE_SYSTEM.md`) - **0%**
-- [ ] Plan 07: MYO content/config tools (`plans/07_MYO_CONTENT_CONFIG.md`) - **0%**
+- [ ] Plan 01: MYO system (`myo system plan/01_MYO_SYSTEM.md`) - **0%**
+- [ ] Plan 02: Batch and slot system (`myo system plan/02_BATCH_SLOT_SYSTEM.md`) - **0%**
+- [ ] Plan 03: Currency system (`myo system plan/03_CURRENCY_SYSTEM.md`) - **0%**
+- [ ] Plan 04: Gacha system (`myo system plan/04_GACHA_SYSTEM.md`) - **0%**
+- [ ] Plan 05: Casino minigames (`myo system plan/05_CASINO_MINIGAMES.md`) - **0%**
+- [ ] Plan 06: Collectible system (`myo system plan/06_COLLECTIBLE_SYSTEM.md`) - **0%**
+- [ ] Plan 07: MYO content/config tools (`myo system plan/07_MYO_CONTENT_CONFIG.md`) - **0%**
 
 ---
 
@@ -158,7 +160,7 @@ Planned expansion systems (`plans/`) progress: **0%**
 ### A. Get the bot running (computer)
 
 1. Install **Python 3.11 or newer** if you do not have it.
-2. Open a terminal in the **`bot`** folder (the folder that contains `main.py`).
+2. Open a terminal in the **repository root** (the folder that contains `main.py`, `cogs/`, and `requirements.txt`).
 3. (Recommended) Create a virtual environment and activate it. On Windows:
 
    ```bash
@@ -180,7 +182,7 @@ Planned expansion systems (`plans/`) progress: **0%**
    python main.py
    ```
 
-8. **First run** creates a local database file **`bot.db`**. Do not share it if it contains private data.
+8. **First run** creates a local SQLite file **`bot.db`** next to `main.py`. Do not share it if it contains private data.
 9. **Slash command sync (optional):** See **`.env.example`** for **`SYNC_GUILD_ID`** (guild-only registration for one server) and **`GUILD_SLASH_PURGE_ID`** (one-time cleanup if duplicates remain after changing sync mode).
 
 
@@ -203,7 +205,7 @@ Do this **after** the bot is online and invited with enough permissions (see [Di
 1. Run **`/config view`** to see what is missing (managers only—see [commands](#commands-by-who-can-use-them)).
 2. Use **`/setup`** (interactive wizard) to map **channels, categories, and roles**, or set them through your workflow until every slot you need is filled (queue channel, ticket categories, staff role, TOS role, **vouches**, **feedback**, **please vouch**, **feedback pending**, **review reward**, **optional** age-verified role and verification channel for NSFW ticket types, etc.).
 3. Set **payment** text and URLs with **`/config payment`** subcommands (`gcash_details`, `paypal_link`, `kofi_link`, `gcash_qr`, `paypal_qr`) so the payment buttons and ticket payment embeds work.
-4. Put your TOS text in **`tos.txt`** (in the `bot` folder) if you use the TOS panel.
+4. Put your TOS text in **`tos.txt`** in the repository root if you use the TOS panel.
 5. Staff configures **quote prices** (`/setprice`, `/quoteextras`, discounts, currencies—see [Quotes](#quotes-and-pricing)) if you want automatic ticket quotes.
 6. Staff runs **`/ticketpanel`** (and **`/ticketbutton add`** for each ticket type), plus **`/deploy tos`** and **`/deploy payment`**, to post the panels into the channels you configured.
 
@@ -335,15 +337,15 @@ If something fails with “missing permissions,” give the bot’s role a highe
 
 ### Planned core systems (unimplemented)
 
-The following systems are documented in `plans/` and are **not implemented yet**:
+The following systems are documented under **`myo system plan/`** and are **not implemented yet**:
 
-- [ ] **MYO system** (`plans/01_MYO_SYSTEM.md`) - **0%**
-- [ ] **Batch and slot system** (`plans/02_BATCH_SLOT_SYSTEM.md`) - **0%**
-- [ ] **Currency system (EC/PC)** (`plans/03_CURRENCY_SYSTEM.md`) - **0%**
-- [ ] **Gacha system** (`plans/04_GACHA_SYSTEM.md`) - **0%**
-- [ ] **Casino minigames** (`plans/05_CASINO_MINIGAMES.md`) - **0%**
-- [ ] **Collectible system** (`plans/06_COLLECTIBLE_SYSTEM.md`) - **0%**
-- [ ] **MYO content/config tooling** (`plans/07_MYO_CONTENT_CONFIG.md`) - **0%**
+- [ ] **MYO system** (`myo system plan/01_MYO_SYSTEM.md`) - **0%**
+- [ ] **Batch and slot system** (`myo system plan/02_BATCH_SLOT_SYSTEM.md`) - **0%**
+- [ ] **Currency system (EC/PC)** (`myo system plan/03_CURRENCY_SYSTEM.md`) - **0%**
+- [ ] **Gacha system** (`myo system plan/04_GACHA_SYSTEM.md`) - **0%**
+- [ ] **Casino minigames** (`myo system plan/05_CASINO_MINIGAMES.md`) - **0%**
+- [ ] **Collectible system** (`myo system plan/06_COLLECTIBLE_SYSTEM.md`) - **0%**
+- [ ] **MYO content/config tooling** (`myo system plan/07_MYO_CONTENT_CONFIG.md`) - **0%**
 
 ---
 
@@ -426,7 +428,7 @@ These commands are **not** the same as the general **Staff** role used for ticke
 
 ## Hosting the bot online
 
-For **Render**, Railway, or similar: run **`python main.py`** as the start command from the **`bot`** folder. Set **`BOT_TOKEN`** (and **`PORT`** is provided automatically on Render). The keep-alive server listens on **`PORT`** (defaults to **8080** locally). Do **not** point the app at a different port than **`PORT`** or public URLs may return **502**. Check your provider’s docs for “background worker” vs “web service.”
+For **Render**, Railway, or similar: run **`python main.py`** as the start command from the **repository root**. Set **`BOT_TOKEN`** (and **`PORT`** is provided automatically on Render). The keep-alive server listens on **`PORT`** (defaults to **8080** locally). Do **not** point the app at a different port than **`PORT`** or public URLs may return **502**. Check your provider’s docs for “background worker” vs “web service.”
 
 ---
 
@@ -464,6 +466,7 @@ Step-by-step **commission ordering** narrative—setup, opening a ticket, queue 
 - [`docs/situational-flows.md`](docs/situational-flows.md) — situational flows by role (owner, staff, client).
 - [`docs/README.md`](docs/README.md) — index of extra docs.
 - [`docs/database-reference.md`](docs/database-reference.md) — SQLite tables overview (includes embed/button builder tables).
+- [`docs/feature-priority-list.md`](docs/feature-priority-list.md) — prioritized implementation checklist (P0–P4) aligned with `docs/`.
 - [`autoresponder builder/autoresponder-full-spec.md`](autoresponder%20builder/autoresponder-full-spec.md) — full AR target scope (parity + planned extensions).
-- [`docs/TICKETING.md`](docs/TICKETING.md) — ticket system behavior (may lag behind code; prefer this README + `/config view` for current commands).
+- [`docs/tickets-and-panels.md`](docs/tickets-and-panels.md) — ticket panels, intake, deploy, close/transcript (see also this README + `/config view` for current behavior).
 - [`button builder/embed-button-improvements.md`](button%20builder/embed-button-improvements.md) — design notes and future ideas for panels, conditions, analytics (implementation varies; see sections above for what the bot does today).

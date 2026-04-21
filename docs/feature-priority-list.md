@@ -1,4 +1,4 @@
-# Mika Shop Feature Priority List
+# Bloomni feature priority list
 
 This document lists bot features from `docs/`, sorted by implementation priority.
 Priority model:

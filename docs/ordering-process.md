@@ -1,6 +1,6 @@
 # Commission ordering process — full guide
 
-This document explains **end-to-end how ordering works** in the Mika Shop bot: from server setup through tickets, queue, payment, staff workflow, **Done** vs **close**, vouching, reviews, and loyalty. It is written for **three audiences**:
+This document explains **end-to-end how ordering works** in the **Bloomni** bot: from server setup through tickets, queue, payment, staff workflow, **Done** vs **close**, vouching, reviews, and loyalty. It is written for **three audiences**:
 
 | Audience | Typical responsibilities |
 |----------|-------------------------|

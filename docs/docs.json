@@ -1,18 +1,21 @@
 {
   "meta": {
-    "title": "Mika Shop bot documentation bundle",
-    "description": "Structured index derived from markdown files in bot/docs. Edit the .md sources of truth; regenerate or merge manually when docs change.",
+    "title": "Bloomni bot documentation bundle",
+    "description": "Structured index derived from markdown files in docs/. Edit the .md sources of truth; regenerate or merge manually when docs change.",
     "version": "1.0.0",
-    "generated": "2026-04-11",
-    "sourceDirectory": "bot/docs",
+    "generated": "2026-04-21",
+    "sourceDirectory": "docs",
     "projectReadme": "../README.md"
   },
   "runtime": {
     "entrypoint": "main.py",
     "botClass": "MikaBot",
-    "databaseDefaultPath": "bot/bot.db",
+    "databaseDefaultPath": "bot.db",
     "extensionLoadOrder": [
       "cogs.owner_tools",
+      "cogs.embed_builder",
+      "cogs.button_builder",
+      "cogs.autoresponder_builder",
       "cogs.config_cmd",
       "cogs.setup_wizard",
       "cogs.quotes",
@@ -20,13 +23,14 @@
       "cogs.queue",
       "cogs.shop",
       "cogs.vouch",
+      "cogs.loyalty_cards",
       "cogs.warn",
       "cogs.sticky",
       "cogs.drop",
       "cogs.payment"
     ],
     "intents": ["default", "message_content", "members"],
-    "persistentViewsOnStartup": ["TOSAgreeView", "PaymentView", "ticket panel views", "CloseTicketView", "OrderStatusView"]
+    "persistentViewsOnStartup": ["TOSAgreeView", "PaymentView", "ticket panel views", "CloseTicketView", "OrderStatusView", "leave review views"]
   },
   "environment": {
     "BOT_TOKEN": "Required — Discord bot token (.env)",
